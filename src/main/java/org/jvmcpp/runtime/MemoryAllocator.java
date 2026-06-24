@@ -37,4 +37,10 @@ public final class MemoryAllocator {
 
         return pointer;
     }
+
+    public void free(ManagedPointer<?> pointer) {
+        if (pointer != null) {
+            pointer.free();
+        }
+    }
 }

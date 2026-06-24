@@ -54,6 +54,16 @@ public final class ManagedPointer<T> {
         UNSAFE.putByte(base, resolveAddress(), value);
     }
 
+    public short readShort() {
+        checkBounds(2);
+        return UNSAFE.getShort(base, resolveAddress());
+    }
+
+    public void writeShort(short value) {
+        checkBounds(2);
+        UNSAFE.putShort(base, resolveAddress(), value);
+    }
+
     public int readInt() {
         checkBounds(4);
         return UNSAFE.getInt(base, resolveAddress());
@@ -74,6 +84,26 @@ public final class ManagedPointer<T> {
         UNSAFE.putLong(base, resolveAddress(), value);
     }
 
+    public float readFloat() {
+        checkBounds(4);
+        return UNSAFE.getFloat(base, resolveAddress());
+    }
+
+    public void writeFloat(float value) {
+        checkBounds(4);
+        UNSAFE.putFloat(base, resolveAddress(), value);
+    }
+
+    public double readDouble() {
+        checkBounds(8);
+        return UNSAFE.getDouble(base, resolveAddress());
+    }
+
+    public void writeDouble(double value) {
+        checkBounds(8);
+        UNSAFE.putDouble(base, resolveAddress(), value);
+    }
+
     public long readPointer() {
         // A C++ pointer is typically represented as a 64-bit integer
         checkBounds(8);
@@ -86,7 +116,18 @@ public final class ManagedPointer<T> {
     }
 
     public ManagedPointer<T> addOffset(long bytes) {
-        return new ManagedPointer<>(base, offset + bytes, bounds);
+        long newOffset = offset + bytes;
+        return new ManagedPointer<>(base, newOffset, bounds);
+    }
+
+    // Explicit free manipulation
+    public void free() {
+        if (base instanceof byte[]) {
+            byte[] arr = (byte[]) base;
+            for (int i = 0; i < arr.length; i++) {
+                arr[i] = 0;
+            }
+        }
     }
 
     // Getters
