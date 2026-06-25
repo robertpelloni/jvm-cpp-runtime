@@ -115,6 +115,43 @@ public final class ManagedPointer<T> {
         UNSAFE.putLong(base, resolveAddress(), value);
     }
 
+    public String readCString() {
+        // Find the null terminator manually safely within bounds
+        long currentOffset = this.offset;
+        long maxLength = bounds - currentOffset;
+
+        int length = 0;
+        while (length < maxLength) {
+            byte b = UNSAFE.getByte(base, resolveAddress() + length);
+            if (b == 0) {
+                break;
+            }
+            length++;
+        }
+
+        if (length == maxLength) {
+            throw new MemoryAccessException("Could not find null terminator within bounds for CString. Offset: " + currentOffset + ", bounds: " + bounds);
+        }
+
+        byte[] strBytes = new byte[length];
+        for (int i = 0; i < length; i++) {
+            strBytes[i] = UNSAFE.getByte(base, resolveAddress() + i);
+        }
+
+        return new String(strBytes, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    public void writeCString(String str) {
+        byte[] strBytes = str.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        checkBounds(strBytes.length + 1); // +1 for null terminator
+
+        for (int i = 0; i < strBytes.length; i++) {
+            UNSAFE.putByte(base, resolveAddress() + i, strBytes[i]);
+        }
+        // Write null terminator
+        UNSAFE.putByte(base, resolveAddress() + strBytes.length, (byte) 0);
+    }
+
     public ManagedPointer<T> addOffset(long bytes) {
         long newOffset = offset + bytes;
         return new ManagedPointer<>(base, newOffset, bounds);

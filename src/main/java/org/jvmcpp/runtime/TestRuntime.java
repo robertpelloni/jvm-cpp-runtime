@@ -45,6 +45,20 @@ public class TestRuntime {
         ManagedPointer<?> ptr7 = ptr6.addOffset(-4);
         if (ptr7.readFloat() != 3.14f) throw new AssertionError("Negative offset mismatch");
 
+        // Test CString operations
+        ManagedPointer<?> strPtr = allocator.malloc(64);
+        strPtr.writeCString("Hello World");
+        if (!strPtr.readCString().equals("Hello World")) throw new AssertionError("CString read/write mismatch");
+
+        // Test copyMemory (memcpy)
+        ManagedPointer<?> srcPtr = allocator.malloc(32);
+        srcPtr.writeCString("Copy Me");
+
+        ManagedPointer<?> destPtr = allocator.malloc(32);
+        MemoryAllocator.copyMemory(destPtr, srcPtr, 8); // "Copy Me\0" = 8 bytes
+
+        if (!destPtr.readCString().equals("Copy Me")) throw new AssertionError("copyMemory (memcpy) failed");
+
         // Test free
         allocator.free(ptr);
         if (ptr.readByte() != 0) throw new AssertionError("Free did not clear memory");

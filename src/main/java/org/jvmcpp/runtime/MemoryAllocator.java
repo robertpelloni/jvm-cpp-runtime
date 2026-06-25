@@ -43,4 +43,40 @@ public final class MemoryAllocator {
             pointer.free();
         }
     }
+
+    public static void copyMemory(ManagedPointer<?> dest, ManagedPointer<?> src, long bytes) {
+        if (bytes < 0) {
+            throw new IllegalArgumentException("Cannot copy negative bytes: " + bytes);
+        }
+        if (bytes == 0) {
+            return;
+        }
+
+        // Validate bounds on both pointers before performing Unsafe operations
+        if (dest.getOffset() < 0 || dest.getOffset() + bytes > dest.getBounds()) {
+            throw new MemoryAccessException("Destination memory access out of bounds for copyMemory. Offset: " + dest.getOffset() + ", size: " + bytes + ", bounds: " + dest.getBounds());
+        }
+        if (src.getOffset() < 0 || src.getOffset() + bytes > src.getBounds()) {
+            throw new MemoryAccessException("Source memory access out of bounds for copyMemory. Offset: " + src.getOffset() + ", size: " + bytes + ", bounds: " + src.getBounds());
+        }
+
+        // Reflection hack to get Unsafe inside MemoryAllocator without exporting from ManagedPointer
+        // OR better yet, let's just make sure both pointers can resolve addresses. We cannot access resolveAddress easily.
+        // It's cleaner to implement a package-private blockCopy in ManagedPointer or let MemoryAllocator rely on looping primitive reads/writes if it doesn't have direct Unsafe access.
+        // Let's implement blockCopy by fetching Unsafe directly here just like ManagedPointer.
+        try {
+            java.lang.reflect.Field f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+            f.setAccessible(true);
+            sun.misc.Unsafe unsafe = (sun.misc.Unsafe) f.get(null);
+
+            long byteArrayOffset = unsafe.arrayBaseOffset(byte[].class);
+
+            long destAddress = dest.getBase() instanceof byte[] ? byteArrayOffset + dest.getOffset() : dest.getOffset();
+            long srcAddress = src.getBase() instanceof byte[] ? byteArrayOffset + src.getOffset() : src.getOffset();
+
+            unsafe.copyMemory(src.getBase(), srcAddress, dest.getBase(), destAddress, bytes);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to execute copyMemory", e);
+        }
+    }
 }
