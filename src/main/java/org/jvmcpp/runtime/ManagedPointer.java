@@ -2,6 +2,7 @@ package org.jvmcpp.runtime;
 
 import sun.misc.Unsafe;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 
 public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
     private final Object base;
@@ -253,6 +254,38 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
                 arr[i] = 0;
             }
         }
+    }
+
+    /**
+     * Returns a ByteBuffer wrapping the underlying memory from current offset to bounds.
+     * Operates zero-copy when backed by on-heap byte[].
+     */
+    public ByteBuffer asByteBuffer() {
+        if (base instanceof byte[]) {
+            byte[] arr = (byte[]) base;
+            int pos = (int) offset;
+            int len = (int) (bounds - offset);
+            return ByteBuffer.wrap(arr, pos, len).slice();
+        } else {
+            throw new UnsupportedOperationException("Zero-copy ByteBuffer only supported on byte[] backed pointers");
+        }
+    }
+
+    /**
+     * Copies data into a new byte array.
+     */
+    public byte[] toByteArray() {
+        long len = bounds - offset;
+        if (len < 0 || len > Integer.MAX_VALUE) {
+            throw new MemoryAccessException("Invalid length for toByteArray: " + len);
+        }
+        byte[] result = new byte[(int) len];
+        for (int i = 0; i < (int) len; i++) {
+            result[i] = readByte();
+            offset++;
+        }
+        offset -= len; // restore
+        return result;
     }
 
     // Getters

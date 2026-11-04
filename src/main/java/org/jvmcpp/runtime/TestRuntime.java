@@ -183,6 +183,54 @@ public class TestRuntime {
         // Free block
         allocator.free(block);
 
+        // Test ByteBuffer and toByteArray
+        ManagedPointer<?> byteBufBlock = allocator.malloc(16);
+        byteBufBlock.writeInt(0x12345678);
+        java.nio.ByteBuffer bb = byteBufBlock.asByteBuffer();
+        bb.order(java.nio.ByteOrder.nativeOrder());
+        if (bb.getInt(0) != 0x12345678) throw new AssertionError("ByteBuffer getInt mismatch");
+
+        byte[] exportedBytes = byteBufBlock.toByteArray();
+        if (exportedBytes.length != 16) throw new AssertionError("toByteArray length mismatch");
+        allocator.free(byteBufBlock);
+
+        // Multi-threaded stress test
+        int threadsCount = 4;
+        Thread[] threads = new Thread[threadsCount];
+        final java.util.concurrent.atomic.AtomicBoolean threadFailed = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        for (int i = 0; i < threadsCount; i++) {
+            final int threadId = i;
+            threads[i] = new Thread(() -> {
+                try {
+                    for (int iter = 0; iter < 100; iter++) {
+                        ManagedPointer<?> p = allocator.malloc(32);
+                        p.writeLong(threadId * 1000L + iter);
+                        if (p.readLong() != threadId * 1000L + iter) {
+                            threadFailed.set(true);
+                        }
+                        allocator.free(p);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    threadFailed.set(true);
+                }
+            });
+            threads[i].start();
+        }
+
+        for (Thread t : threads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        if (threadFailed.get()) {
+            throw new AssertionError("Multi-threaded stress test failed");
+        }
+
         System.out.println("All tests passed!");
     }
 }
