@@ -231,6 +231,37 @@ public class TestRuntime {
             throw new AssertionError("Multi-threaded stress test failed");
         }
 
+        // Test StdLib string shims
+        ManagedPointer<?> s1 = allocator.malloc(32);
+        ManagedPointer<?> s2 = allocator.malloc(32);
+        s1.writeCString("Hello");
+        s2.writeCString(" World");
+
+        if (StdLib.strlen(s1) != 5) throw new AssertionError("strlen failed");
+        if (StdLib.strlen(s2) != 6) throw new AssertionError("strlen failed for s2");
+
+        ManagedPointer<?> sDest = allocator.malloc(64);
+        StdLib.strcpy(sDest, s1);
+        if (!sDest.readCString().equals("Hello")) throw new AssertionError("strcpy failed");
+
+        StdLib.strcat(sDest, s2);
+        if (!sDest.readCString().equals("Hello World")) throw new AssertionError("strcat failed");
+
+        if (StdLib.strcmp(s1, s1) != 0) throw new AssertionError("strcmp equal failed");
+        if (StdLib.strcmp(s1, s2) <= 0) throw new AssertionError("strcmp comparison failed");
+
+        ManagedPointer<?> s3 = allocator.malloc(32);
+        StdLib.strncpy(s3, sDest, 5);
+        s3.addOffset(5).writeByte((byte) 0); // null terminate
+        if (!s3.readCString().equals("Hello")) throw new AssertionError("strncpy failed");
+
+        if (StdLib.strncmp(s1, sDest, 5) != 0) throw new AssertionError("strncmp failed");
+
+        allocator.free(s1);
+        allocator.free(s2);
+        allocator.free(sDest);
+        allocator.free(s3);
+
         System.out.println("All tests passed!");
     }
 }

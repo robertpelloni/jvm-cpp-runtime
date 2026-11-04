@@ -272,7 +272,7 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
     }
 
     /**
-     * Copies data into a new byte array.
+     * Copies data into a new byte array without side effects on offset.
      */
     public byte[] toByteArray() {
         long len = bounds - offset;
@@ -281,10 +281,8 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
         }
         byte[] result = new byte[(int) len];
         for (int i = 0; i < (int) len; i++) {
-            result[i] = readByte();
-            offset++;
+            result[i] = UNSAFE.getByte(base, resolveAddress() + i);
         }
-        offset -= len; // restore
         return result;
     }
 
