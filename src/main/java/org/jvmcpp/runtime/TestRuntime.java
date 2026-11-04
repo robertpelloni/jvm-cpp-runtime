@@ -113,6 +113,32 @@ public class TestRuntime {
         ManagedPointer<?> freedRealloc = allocator.realloc(nullRealloc, 0);
         if (freedRealloc != null) throw new AssertionError("realloc(ptr, 0) should return null");
 
+        // Test calloc
+        ManagedPointer<?> callocPtr = allocator.calloc(4, 8); // 32 bytes
+        if (callocPtr.getBounds() != 32) throw new AssertionError("calloc bounds mismatch");
+        for (int i = 0; i < 32; i++) {
+            if (callocPtr.addOffset(i).readByte() != 0) {
+                throw new AssertionError("calloc not zeroed at offset " + i);
+            }
+        }
+
+        // Test allocator metrics tracking
+        allocator.free(callocPtr);
+        allocator.free(shrunkPtr);
+        allocator.free(fillPtr);
+        allocator.free(charPtr);
+        allocator.free(boolPtr);
+        allocator.free(destPtr);
+        allocator.free(srcPtr);
+        allocator.free(strPtr);
+
+        if (allocator.getActiveAllocationCount() != 0) {
+            throw new AssertionError("Active allocation count mismatch: " + allocator.getActiveAllocationCount());
+        }
+        if (allocator.getTotalAllocatedBytes() != 0) {
+            throw new AssertionError("Total allocated bytes mismatch: " + allocator.getTotalAllocatedBytes());
+        }
+
         System.out.println("All tests passed!");
     }
 }

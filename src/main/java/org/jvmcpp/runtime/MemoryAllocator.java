@@ -4,43 +4,64 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 public final class MemoryAllocator {
-    // Keep strong references to allocated memory blocks to prevent premature GC
-    // This simulates manual memory management where C++ code explicitly frees memory
-    // Alternatively, this allows the JVM to GC it when the C++ application loses all references
-    // to the ManagedPointer wrapper, by not strictly pinning it here indefinitely.
-    // However, the prompt says: "keeps track of references to ensure the Java GC doesn't prematurely sweep them unless the C++ application loses all references to the pointer."
-    // Actually, if we just return a ManagedPointer that holds a strong reference to the byte[],
-    // the JVM's GC already guarantees it won't be swept until the ManagedPointer is unreachable.
-    // Let's hold a weak set of allocations or a set of objects to match the prompt's intent.
-    // The prompt says: "keeps track of references to ensure the Java GC doesn't prematurely sweep them unless the C++ application loses all references to the pointer."
-    // If we just return the ManagedPointer, the ManagedPointer holds a strong reference to `base` (the byte[]).
-    // The Java GC inherently keeps the byte[] alive as long as the ManagedPointer is reachable.
+    private final AtomicLong activeAllocations = new AtomicLong(0);
+    private final AtomicLong totalAllocatedBytes = new AtomicLong(0);
 
     public MemoryAllocator() {
     }
 
+    public long getActiveAllocationCount() {
+        return activeAllocations.get();
+    }
+
+    public long getTotalAllocatedBytes() {
+        return totalAllocatedBytes.get();
+    }
+
+    /**
+     * Allocates on-heap memory of specified byte size.
+     */
     public <T> ManagedPointer<T> malloc(long size) {
         if (size < 0 || size > Integer.MAX_VALUE - 8) {
             throw new IllegalArgumentException("Invalid allocation size: " + size);
         }
 
-        // Provision primitive byte[] array
         byte[] memoryBlock = new byte[(int) size];
-
-        // Construct a ManagedPointer wrapping that array
         ManagedPointer<T> pointer = new ManagedPointer<>(memoryBlock, 0, size);
 
-        // The JVM garbage collector natively "keeps track of references to ensure the Java GC doesn't
-        // prematurely sweep them unless the C++ application loses all references to the pointer."
-        // Because `pointer` holds a strong reference to `memoryBlock` in its `base` field.
+        activeAllocations.incrementAndGet();
+        totalAllocatedBytes.addAndGet(size);
 
         return pointer;
     }
 
+    /**
+     * Allocates zero-initialized memory for num elements of size bytes.
+     */
+    public <T> ManagedPointer<T> calloc(long num, long size) {
+        if (num < 0 || size < 0) {
+            throw new IllegalArgumentException("Negative dimensions for calloc");
+        }
+        long totalSize = num * size;
+        ManagedPointer<T> ptr = malloc(totalSize);
+        // Java arrays are already initialized to 0, but explicitly ensuring zero fill
+        if (totalSize > 0) {
+            ptr.fillMemory((byte) 0, totalSize);
+        }
+        return ptr;
+    }
+
+    /**
+     * Frees and sanitizes the allocated pointer.
+     */
     public void free(ManagedPointer<?> pointer) {
         if (pointer != null) {
             pointer.free();
+            activeAllocations.decrementAndGet();
+            totalAllocatedBytes.addAndGet(-pointer.getBounds());
         }
     }
 
@@ -63,6 +84,8 @@ public final class MemoryAllocator {
         if (bytesToCopy > 0) {
             copyMemory(newPointer, pointer, bytesToCopy);
         }
+        // Free the old pointer and sanitize memory
+        free(pointer);
         return newPointer;
     }
 
