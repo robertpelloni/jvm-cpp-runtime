@@ -44,6 +44,38 @@ public final class MemoryAllocator {
         }
     }
 
+    /**
+     * Reallocates memory block to a new size. Copies existing data up to min(oldSize, newSize).
+     * If pointer is null, behaves like malloc(newSize).
+     * If newSize is 0, frees pointer and returns null.
+     */
+    public <T> ManagedPointer<T> realloc(ManagedPointer<T> pointer, long newSize) {
+        if (pointer == null) {
+            return malloc(newSize);
+        }
+        if (newSize == 0) {
+            free(pointer);
+            return null;
+        }
+
+        ManagedPointer<T> newPointer = malloc(newSize);
+        long bytesToCopy = Math.min(pointer.getBounds(), newSize);
+        if (bytesToCopy > 0) {
+            copyMemory(newPointer, pointer, bytesToCopy);
+        }
+        return newPointer;
+    }
+
+    /**
+     * Sets a block of memory to the specified byte value (memset).
+     */
+    public static void fillMemory(ManagedPointer<?> ptr, byte value, long bytes) {
+        if (ptr == null) {
+            throw new IllegalArgumentException("Cannot fillMemory on null pointer");
+        }
+        ptr.fillMemory(value, bytes);
+    }
+
     public static void copyMemory(ManagedPointer<?> dest, ManagedPointer<?> src, long bytes) {
         if (bytes < 0) {
             throw new IllegalArgumentException("Cannot copy negative bytes: " + bytes);

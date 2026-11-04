@@ -63,6 +63,56 @@ public class TestRuntime {
         allocator.free(ptr);
         if (ptr.readByte() != 0) throw new AssertionError("Free did not clear memory");
 
+        // Test boolean
+        ManagedPointer<?> boolPtr = allocator.malloc(4);
+        boolPtr.writeBoolean(true);
+        if (!boolPtr.readBoolean()) throw new AssertionError("Boolean true mismatch");
+        boolPtr.writeBoolean(false);
+        if (boolPtr.readBoolean()) throw new AssertionError("Boolean false mismatch");
+
+        // Test char
+        ManagedPointer<?> charPtr = allocator.malloc(4);
+        charPtr.writeChar('Z');
+        if (charPtr.readChar() != 'Z') throw new AssertionError("Char mismatch");
+
+        // Test fillMemory / memset
+        ManagedPointer<?> fillPtr = allocator.malloc(16);
+        fillPtr.fillMemory((byte) 0xAA, 16);
+        for (int i = 0; i < 16; i++) {
+            if (fillPtr.addOffset(i).readByte() != (byte) 0xAA) {
+                throw new AssertionError("fillMemory failed at index " + i);
+            }
+        }
+        MemoryAllocator.fillMemory(fillPtr, (byte) 0x55, 8);
+        for (int i = 0; i < 8; i++) {
+            if (fillPtr.addOffset(i).readByte() != (byte) 0x55) {
+                throw new AssertionError("MemoryAllocator.fillMemory failed at index " + i);
+            }
+        }
+        if (fillPtr.addOffset(8).readByte() != (byte) 0xAA) {
+            throw new AssertionError("fillMemory boundary check failed");
+        }
+
+        // Test realloc - grow
+        ManagedPointer<?> reallocPtr = allocator.malloc(8);
+        reallocPtr.writeInt(4242);
+        ManagedPointer<?> grownPtr = allocator.realloc(reallocPtr, 32);
+        if (grownPtr.getBounds() != 32) throw new AssertionError("realloc bounds mismatch");
+        if (grownPtr.readInt() != 4242) throw new AssertionError("realloc data copy mismatch");
+
+        // Test realloc - shrink
+        ManagedPointer<?> shrunkPtr = allocator.realloc(grownPtr, 4);
+        if (shrunkPtr.getBounds() != 4) throw new AssertionError("realloc shrink bounds mismatch");
+        if (shrunkPtr.readInt() != 4242) throw new AssertionError("realloc shrink data mismatch");
+
+        // Test realloc with null
+        ManagedPointer<?> nullRealloc = allocator.realloc(null, 16);
+        if (nullRealloc == null || nullRealloc.getBounds() != 16) throw new AssertionError("realloc(null, size) failed");
+
+        // Test realloc with 0
+        ManagedPointer<?> freedRealloc = allocator.realloc(nullRealloc, 0);
+        if (freedRealloc != null) throw new AssertionError("realloc(ptr, 0) should return null");
+
         System.out.println("All tests passed!");
     }
 }

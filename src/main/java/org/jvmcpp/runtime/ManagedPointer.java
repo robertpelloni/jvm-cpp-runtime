@@ -44,6 +44,16 @@ public final class ManagedPointer<T> {
         }
     }
 
+    public boolean readBoolean() {
+        checkBounds(1);
+        return UNSAFE.getBoolean(base, resolveAddress());
+    }
+
+    public void writeBoolean(boolean value) {
+        checkBounds(1);
+        UNSAFE.putBoolean(base, resolveAddress(), value);
+    }
+
     public byte readByte() {
         checkBounds(1);
         return UNSAFE.getByte(base, resolveAddress());
@@ -52,6 +62,16 @@ public final class ManagedPointer<T> {
     public void writeByte(byte value) {
         checkBounds(1);
         UNSAFE.putByte(base, resolveAddress(), value);
+    }
+
+    public char readChar() {
+        checkBounds(2);
+        return UNSAFE.getChar(base, resolveAddress());
+    }
+
+    public void writeChar(char value) {
+        checkBounds(2);
+        UNSAFE.putChar(base, resolveAddress(), value);
     }
 
     public short readShort() {
@@ -155,6 +175,23 @@ public final class ManagedPointer<T> {
     public ManagedPointer<T> addOffset(long bytes) {
         long newOffset = offset + bytes;
         return new ManagedPointer<>(base, newOffset, bounds);
+    }
+
+    /**
+     * Sets a block of memory to the specified byte value (analogous to C memset).
+     *
+     * @param value The byte value to write.
+     * @param bytes Number of bytes to fill.
+     */
+    public void fillMemory(byte value, long bytes) {
+        if (bytes < 0) {
+            throw new IllegalArgumentException("Cannot fill negative bytes: " + bytes);
+        }
+        if (bytes == 0) {
+            return;
+        }
+        checkBounds(bytes);
+        UNSAFE.setMemory(base, resolveAddress(), bytes, value);
     }
 
     // Explicit free manipulation

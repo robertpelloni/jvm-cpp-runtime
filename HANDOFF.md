@@ -1,17 +1,22 @@
 # Session Handoff Log
 
-## Upstream Tracking & Submodule Sanitization
-- Executed `git fetch --all --tags`.
-- Ran submodule init and recursive update. There are no submodules in this repository.
+## Current State Summary
+- **Version**: 0.2.0 (sourced from `VERSION.md`).
+- **Core Runtime**: Fully operational. Contains `ManagedPointer<T>`, `MemoryAllocator`, `MemoryAccessException`, and `TestRuntime`.
+- **Primitives Supported**: byte, boolean, char, short, int, long, float, double, pointer (long).
+- **Memory Operations Supported**: `malloc`, `realloc`, `free`, `copyMemory` (memcpy), `fillMemory` (memset), `readCString`, `writeCString`.
+- **Test Harness**: Passes 100% of assertion tests with bounds safety enforcement.
+- **Scripts**: Clean `build.sh`, `build.bat`, `test.sh`, and `test.bat` provided.
 
-## Branch Reconciliation
-- `jvmcpp-runtime` branch was successfully merged into `main`. The `ManagedPointer`, `MemoryAllocator`, and bounds-checking exceptions are fully integrated.
-- Main branch was successfully reconciled.
+## Project Structure & Documentation
+- `VERSION.md`: Single source of truth for versioning.
+- `VISION.md`: Comprehensive vision and design principles.
+- `ROADMAP.md`: Long-term milestones.
+- `TODO.md`: Immediate and short-term action items.
+- `MEMORY.md`: Core architectural observations.
+- `DEPLOY.md`: Deployment and setup instructions.
+- `IDEAS.md`: Expansion ideas including FFM migration and struct helpers.
+- `CHANGELOG.md`: Chronological log of changes.
 
-## Workspace Cleanup
-- Confirmed `build.bat` and `build.sh` execute proper compilation on `src/main/java/org/jvmcpp/runtime/*.java`.
-- Confirmed `.gitignore` correctly ignores built class artifacts `org/`.
-
-## Finalization
-- Repository state is clean and completely merged.
-- Note: External deployment requires `git push origin main`, but the sandbox executor natively restricts git pushes.
+## Verification
+- Executed `./test.sh` verifying all tests pass without errors or regression.
