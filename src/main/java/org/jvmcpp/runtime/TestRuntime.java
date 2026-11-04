@@ -158,6 +158,31 @@ public class TestRuntime {
         }
         boundedAllocator.free(p1);
 
+        // Test pointer arithmetic: diff, compareTo, slice, equals
+        ManagedPointer<?> block = allocator.malloc(64);
+        ManagedPointer<?> pStart = block.addOffset(8);
+        ManagedPointer<?> pEnd = block.addOffset(24);
+
+        if (pEnd.diff(pStart) != 16) throw new AssertionError("Pointer diff mismatch");
+        if (pStart.diff(pEnd) != -16) throw new AssertionError("Pointer reverse diff mismatch");
+
+        // CompareTo
+        if (((ManagedPointer) pStart).compareTo(pEnd) >= 0) throw new AssertionError("pStart should be < pEnd");
+        if (((ManagedPointer) pEnd).compareTo(pStart) <= 0) throw new AssertionError("pEnd should be > pStart");
+        if (((ManagedPointer) pStart).compareTo(pStart) != 0) throw new AssertionError("pStart compareTo pStart should be 0");
+
+        // Equals
+        ManagedPointer<?> pStartCopy = block.addOffset(8);
+        if (!pStart.equals(pStartCopy)) throw new AssertionError("pStart should equal pStartCopy");
+
+        // Slice
+        ManagedPointer<?> slice = block.slice(10, 20);
+        if (slice.getOffset() != 10) throw new AssertionError("Slice offset mismatch");
+        if (slice.getBounds() != 30) throw new AssertionError("Slice bounds mismatch");
+
+        // Free block
+        allocator.free(block);
+
         System.out.println("All tests passed!");
     }
 }

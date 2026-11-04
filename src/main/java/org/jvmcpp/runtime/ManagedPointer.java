@@ -3,7 +3,7 @@ package org.jvmcpp.runtime;
 import sun.misc.Unsafe;
 import java.lang.reflect.Field;
 
-public final class ManagedPointer<T> {
+public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
     private final Object base;
     private long offset;
     private final long bounds;
@@ -175,6 +175,57 @@ public final class ManagedPointer<T> {
     public ManagedPointer<T> addOffset(long bytes) {
         long newOffset = offset + bytes;
         return new ManagedPointer<>(base, newOffset, bounds);
+    }
+
+    /**
+     * Calculates the byte difference (pointer distance) between this pointer and another.
+     * Analogous to (ptr1 - ptr2) in C++. Both pointers must share the same base memory block.
+     */
+    public long diff(ManagedPointer<?> other) {
+        if (other == null) {
+            throw new IllegalArgumentException("Cannot calculate pointer diff with null pointer");
+        }
+        if (this.base != other.base) {
+            throw new IllegalArgumentException("Cannot calculate diff between pointers to different memory blocks");
+        }
+        return this.offset - other.offset;
+    }
+
+    /**
+     * Creates a sub-range (slice) pointer with restricted bounds.
+     */
+    public ManagedPointer<T> slice(long sliceOffset, long length) {
+        if (sliceOffset < 0 || length < 0 || offset + sliceOffset + length > bounds) {
+            throw new MemoryAccessException("Invalid slice range: currentOffset=" + offset + ", sliceOffset=" + sliceOffset + ", length=" + length + ", bounds=" + bounds);
+        }
+        return new ManagedPointer<>(base, offset + sliceOffset, offset + sliceOffset + length);
+    }
+
+    @Override
+    public int compareTo(ManagedPointer<T> other) {
+        if (other == null) {
+            throw new NullPointerException("Cannot compare to null ManagedPointer");
+        }
+        if (this.base != other.base) {
+            throw new IllegalArgumentException("Cannot compare pointers from different memory blocks");
+        }
+        return Long.compare(this.offset, other.offset);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof ManagedPointer<?>)) return false;
+        ManagedPointer<?> other = (ManagedPointer<?>) obj;
+        return this.base == other.base && this.offset == other.offset && this.bounds == other.bounds;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = (base != null ? System.identityHashCode(base) : 0);
+        result = 31 * result + Long.hashCode(offset);
+        result = 31 * result + Long.hashCode(bounds);
+        return result;
     }
 
     /**
