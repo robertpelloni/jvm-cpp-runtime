@@ -139,6 +139,25 @@ public class TestRuntime {
             throw new AssertionError("Total allocated bytes mismatch: " + allocator.getTotalAllocatedBytes());
         }
 
+        // Test double free prevention
+        try {
+            allocator.free(callocPtr);
+            throw new AssertionError("Did not detect double free");
+        } catch (MemoryAccessException e) {
+            System.out.println("Caught expected double-free exception: " + e.getMessage());
+        }
+
+        // Test heap quota limit (bounded allocator)
+        MemoryAllocator boundedAllocator = new MemoryAllocator(128); // 128 bytes max
+        ManagedPointer<?> p1 = boundedAllocator.malloc(100);
+        try {
+            boundedAllocator.malloc(50); // 100 + 50 = 150 > 128 -> should fail
+            throw new AssertionError("Did not enforce heap limit");
+        } catch (MemoryAccessException e) {
+            System.out.println("Caught expected heap quota exception: " + e.getMessage());
+        }
+        boundedAllocator.free(p1);
+
         System.out.println("All tests passed!");
     }
 }

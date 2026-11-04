@@ -7,10 +7,24 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class MemoryAllocator {
+    private final long maxHeapBytes;
     private final AtomicLong activeAllocations = new AtomicLong(0);
     private final AtomicLong totalAllocatedBytes = new AtomicLong(0);
+    private final Set<Object> activeBlocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     public MemoryAllocator() {
+        this(Long.MAX_VALUE);
+    }
+
+    public MemoryAllocator(long maxHeapBytes) {
+        if (maxHeapBytes <= 0) {
+            throw new IllegalArgumentException("maxHeapBytes must be positive: " + maxHeapBytes);
+        }
+        this.maxHeapBytes = maxHeapBytes;
+    }
+
+    public long getMaxHeapBytes() {
+        return maxHeapBytes;
     }
 
     public long getActiveAllocationCount() {
@@ -29,9 +43,14 @@ public final class MemoryAllocator {
             throw new IllegalArgumentException("Invalid allocation size: " + size);
         }
 
+        if (totalAllocatedBytes.get() + size > maxHeapBytes) {
+            throw new MemoryAccessException("Out of memory: allocation of " + size + " bytes exceeds heap limit of " + maxHeapBytes + " bytes (current: " + totalAllocatedBytes.get() + ")");
+        }
+
         byte[] memoryBlock = new byte[(int) size];
         ManagedPointer<T> pointer = new ManagedPointer<>(memoryBlock, 0, size);
 
+        activeBlocks.add(memoryBlock);
         activeAllocations.incrementAndGet();
         totalAllocatedBytes.addAndGet(size);
 
@@ -56,9 +75,14 @@ public final class MemoryAllocator {
 
     /**
      * Frees and sanitizes the allocated pointer.
+     * Throws MemoryAccessException if pointer was already freed or was not allocated by this allocator.
      */
     public void free(ManagedPointer<?> pointer) {
         if (pointer != null) {
+            Object base = pointer.getBase();
+            if (base != null && !activeBlocks.remove(base)) {
+                throw new MemoryAccessException("Double free or invalid pointer deallocation");
+            }
             pointer.free();
             activeAllocations.decrementAndGet();
             totalAllocatedBytes.addAndGet(-pointer.getBounds());
