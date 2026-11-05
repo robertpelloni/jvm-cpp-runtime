@@ -272,6 +272,29 @@ public class TestRuntime {
         ManagedPointer<?> reAligned = unaligned.align(16);
         if (!reAligned.isAligned(16)) throw new AssertionError("reAligned should be 16-aligned");
 
+        // Test StructLayout
+        // struct Entity { int id; byte flag; double score; }
+        StructLayout layout = StructLayout.builder()
+                .addField("id", StructLayout.Type.INT)       // 4 bytes, offset 0
+                .addField("flag", StructLayout.Type.BYTE)     // 1 byte, offset 4
+                .addField("score", StructLayout.Type.DOUBLE)  // 8 bytes, offset 8 (aligned to 8)
+                .build();
+
+        if (layout.getOffset("id") != 0) throw new AssertionError("Struct field id offset mismatch");
+        if (layout.getOffset("flag") != 4) throw new AssertionError("Struct field flag offset mismatch");
+        if (layout.getOffset("score") != 8) throw new AssertionError("Struct field score offset mismatch");
+        if (layout.getSize() != 16) throw new AssertionError("Struct total size mismatch: " + layout.getSize());
+        if (layout.getAlignment() != 8) throw new AssertionError("Struct alignment mismatch: " + layout.getAlignment());
+
+        ManagedPointer<?> entity = allocator.malloc(layout.getSize());
+        layout.writeInt(entity, "id", 1001);
+        layout.writeDouble(entity, "score", 99.5);
+
+        if (layout.readInt(entity, "id") != 1001) throw new AssertionError("Struct readInt mismatch");
+        if (layout.readDouble(entity, "score") != 99.5) throw new AssertionError("Struct readDouble mismatch");
+
+        allocator.free(entity);
+
         System.out.println("All tests passed!");
     }
 }
