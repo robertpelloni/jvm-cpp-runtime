@@ -8,9 +8,10 @@
 - [x] Null-terminated C-String read/write support
 
 ## Milestone 2: Modern Java Foreign Function & Memory (FFM) Support (Upcoming)
+- [x] Support aligned pointer operations (`isAligned`, `align`, `aligned_alloc`).
 - [ ] Migrate/augment `sun.misc.Unsafe` with Java 21+ `java.lang.foreign.MemorySegment` and `Arena` APIs.
 - [ ] Implement multi-tier memory allocators (On-Heap byte arrays vs. Off-Heap direct segments).
-- [ ] Support aligned pointer operations and structured layouts (struct/record representations).
+- [ ] Support structured layouts (struct/record representations).
 
 ## Milestone 3: Compiler Integration Layer
 - [ ] Define standard JVM bytecode conventions for emitted C++ class instances and vtables.

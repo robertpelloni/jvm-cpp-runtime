@@ -262,6 +262,16 @@ public class TestRuntime {
         allocator.free(sDest);
         allocator.free(s3);
 
+        // Test pointer alignment and aligned_alloc
+        ManagedPointer<?> pAligned = allocator.aligned_alloc(16, 64);
+        if (!pAligned.isAligned(16)) throw new AssertionError("aligned_alloc not 16-byte aligned");
+        if (pAligned.getBounds() - pAligned.getOffset() != 64) throw new AssertionError("aligned_alloc length mismatch");
+
+        ManagedPointer<?> unaligned = pAligned.addOffset(3);
+        if (unaligned.isAligned(16)) throw new AssertionError("unaligned pointer should not be 16-aligned");
+        ManagedPointer<?> reAligned = unaligned.align(16);
+        if (!reAligned.isAligned(16)) throw new AssertionError("reAligned should be 16-aligned");
+
         System.out.println("All tests passed!");
     }
 }

@@ -179,6 +179,37 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
     }
 
     /**
+     * Checks if current pointer offset/address meets the specified byte alignment.
+     *
+     * @param alignment Must be a positive power of two.
+     */
+    public boolean isAligned(long alignment) {
+        if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
+            throw new IllegalArgumentException("Alignment must be a positive power of two: " + alignment);
+        }
+        return (resolveAddress() % alignment) == 0;
+    }
+
+    /**
+     * Advances pointer forward to the next aligned address for the given alignment.
+     *
+     * @param alignment Must be a positive power of two.
+     * @return Aligned ManagedPointer.
+     */
+    public ManagedPointer<T> align(long alignment) {
+        if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
+            throw new IllegalArgumentException("Alignment must be a positive power of two: " + alignment);
+        }
+        long addr = resolveAddress();
+        long remainder = addr % alignment;
+        if (remainder == 0) {
+            return this;
+        }
+        long padding = alignment - remainder;
+        return addOffset(padding);
+    }
+
+    /**
      * Calculates the byte difference (pointer distance) between this pointer and another.
      * Analogous to (ptr1 - ptr2) in C++. Both pointers must share the same base memory block.
      */

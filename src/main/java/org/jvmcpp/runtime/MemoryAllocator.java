@@ -58,6 +58,28 @@ public final class MemoryAllocator {
     }
 
     /**
+     * Allocates memory aligned to the specified alignment boundary (analogous to C11 aligned_alloc).
+     *
+     * @param alignment Must be a valid alignment (power of two).
+     * @param size Size in bytes.
+     */
+    public <T> ManagedPointer<T> aligned_alloc(long alignment, long size) {
+        if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
+            throw new IllegalArgumentException("Alignment must be a positive power of two: " + alignment);
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("Size must be positive: " + size);
+        }
+
+        // Allocate extra space to allow aligning within the allocated block
+        long totalAlloc = size + alignment;
+        ManagedPointer<T> raw = malloc(totalAlloc);
+        ManagedPointer<T> aligned = raw.align(alignment);
+        // Slice to exact requested size
+        return aligned.slice(0, size);
+    }
+
+    /**
      * Allocates zero-initialized memory for num elements of size bytes.
      */
     public <T> ManagedPointer<T> calloc(long num, long size) {
