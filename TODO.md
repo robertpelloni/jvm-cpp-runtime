@@ -13,4 +13,5 @@
 - [x] Implement memory pooling and sub-allocation strategy in `MemoryAllocator` (`allocatePooled`, `freePooled`).
 - [x] Expand `StdLib` with formatted output (`sprintf`) and math routines (`fabs`, `sqrt`, `pow`, etc.).
 - [x] Implement benchmarking suite (`BenchmarkRuntime.java`).
+- [x] Add CLI runner (`Main.java`, `run.sh`, `run.bat`).
 - [ ] Explore JDK 21 `MemorySegment` implementation alongside `Unsafe`.
