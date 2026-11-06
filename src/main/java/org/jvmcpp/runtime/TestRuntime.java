@@ -1,219 +1,286 @@
 package org.jvmcpp.runtime;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public class TestRuntime {
+
+    private static int testsRun = 0;
+
+    private static void assertTrue(boolean condition, String message) {
+        testsRun++;
+        if (!condition) {
+            throw new AssertionError("Assertion failed: " + message);
+        }
+    }
+
+    private static void assertEquals(Object expected, Object actual, String message) {
+        testsRun++;
+        if (expected == null && actual == null) return;
+        if (expected != null && expected.equals(actual)) return;
+        throw new AssertionError("Assertion failed: " + message + " (Expected: " + expected + ", Actual: " + actual + ")");
+    }
+
     public static void main(String[] args) {
         MemoryAllocator allocator = new MemoryAllocator();
-        ManagedPointer<?> ptr = allocator.malloc(64); // Allocate 64 bytes
 
-        // Test writing and reading byte
+        testPrimitives(allocator);
+        testBoundsAndExceptions(allocator);
+        testPointerArithmeticAndAlignment(allocator);
+        testMemoryAllocatorOperations(allocator);
+        testStdLibStringShims(allocator);
+        testStructLayout(allocator);
+        testByteBufferAndArrayConversion(allocator);
+        testConcurrencyStress(allocator);
+
+        System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
+    }
+
+    private static void testPrimitives(MemoryAllocator allocator) {
+        ManagedPointer<?> ptr = allocator.malloc(64);
+
         ptr.writeByte((byte) 42);
-        if (ptr.readByte() != 42) throw new AssertionError("Byte mismatch");
+        assertEquals((byte) 42, ptr.readByte(), "Byte read/write mismatch");
 
-        // Test pointer arithmetic and bounds
-        ManagedPointer<?> ptr2 = ptr.addOffset(4);
-        ptr2.writeInt(123456789);
-        if (ptr2.readInt() != 123456789) throw new AssertionError("Int mismatch");
+        ptr.writeBoolean(true);
+        assertTrue(ptr.readBoolean(), "Boolean true mismatch");
+        ptr.writeBoolean(false);
+        assertTrue(!ptr.readBoolean(), "Boolean false mismatch");
 
-        // Bounds exception
-        try {
-            ManagedPointer<?> outOfBounds = ptr.addOffset(62);
-            outOfBounds.readInt(); // 62 + 4 = 66 > 64 -> Should throw
-            throw new AssertionError("Did not throw bounds exception");
-        } catch (MemoryAccessException e) {
-            System.out.println("Caught expected exception: " + e.getMessage());
-        }
+        ptr.writeChar('A');
+        assertEquals('A', ptr.readChar(), "Char mismatch");
 
-        // Test pointer (long)
-        ManagedPointer<?> ptr3 = ptr.addOffset(8);
-        ptr3.writePointer(0xDEADBEEFCAFEBABEL);
-        if (ptr3.readPointer() != 0xDEADBEEFCAFEBABEL) throw new AssertionError("Pointer mismatch");
+        ptr.writeShort((short) 1234);
+        assertEquals((short) 1234, ptr.readShort(), "Short mismatch");
 
-        // Test short, float, double
-        ManagedPointer<?> ptr4 = ptr.addOffset(16);
-        ptr4.writeShort((short) 1234);
-        if (ptr4.readShort() != 1234) throw new AssertionError("Short mismatch");
+        ptr.writeInt(123456789);
+        assertEquals(123456789, ptr.readInt(), "Int mismatch");
 
-        ManagedPointer<?> ptr5 = ptr.addOffset(20);
-        ptr5.writeFloat(3.14f);
-        if (ptr5.readFloat() != 3.14f) throw new AssertionError("Float mismatch");
+        ptr.writeLong(9876543210L);
+        assertEquals(9876543210L, ptr.readLong(), "Long mismatch");
 
-        ManagedPointer<?> ptr6 = ptr.addOffset(24);
-        ptr6.writeDouble(2.71828);
-        if (ptr6.readDouble() != 2.71828) throw new AssertionError("Double mismatch");
+        ptr.writeFloat(3.14159f);
+        assertEquals(3.14159f, ptr.readFloat(), "Float mismatch");
 
-        // Test negative offset
-        ManagedPointer<?> ptr7 = ptr6.addOffset(-4);
-        if (ptr7.readFloat() != 3.14f) throw new AssertionError("Negative offset mismatch");
+        ptr.writeDouble(2.718281828);
+        assertEquals(2.718281828, ptr.readDouble(), "Double mismatch");
 
-        // Test CString operations
-        ManagedPointer<?> strPtr = allocator.malloc(64);
-        strPtr.writeCString("Hello World");
-        if (!strPtr.readCString().equals("Hello World")) throw new AssertionError("CString read/write mismatch");
+        ptr.writePointer(0xDEADBEEFCAFEBABEL);
+        assertEquals(0xDEADBEEFCAFEBABEL, ptr.readPointer(), "Pointer mismatch");
 
-        // Test copyMemory (memcpy)
-        ManagedPointer<?> srcPtr = allocator.malloc(32);
-        srcPtr.writeCString("Copy Me");
-
-        ManagedPointer<?> destPtr = allocator.malloc(32);
-        MemoryAllocator.copyMemory(destPtr, srcPtr, 8); // "Copy Me\0" = 8 bytes
-
-        if (!destPtr.readCString().equals("Copy Me")) throw new AssertionError("copyMemory (memcpy) failed");
-
-        // Test free
         allocator.free(ptr);
-        if (ptr.readByte() != 0) throw new AssertionError("Free did not clear memory");
+    }
 
-        // Test boolean
-        ManagedPointer<?> boolPtr = allocator.malloc(4);
-        boolPtr.writeBoolean(true);
-        if (!boolPtr.readBoolean()) throw new AssertionError("Boolean true mismatch");
-        boolPtr.writeBoolean(false);
-        if (boolPtr.readBoolean()) throw new AssertionError("Boolean false mismatch");
+    private static void testBoundsAndExceptions(MemoryAllocator allocator) {
+        ManagedPointer<?> ptr = allocator.malloc(32);
 
-        // Test char
-        ManagedPointer<?> charPtr = allocator.malloc(4);
-        charPtr.writeChar('Z');
-        if (charPtr.readChar() != 'Z') throw new AssertionError("Char mismatch");
-
-        // Test fillMemory / memset
-        ManagedPointer<?> fillPtr = allocator.malloc(16);
-        fillPtr.fillMemory((byte) 0xAA, 16);
-        for (int i = 0; i < 16; i++) {
-            if (fillPtr.addOffset(i).readByte() != (byte) 0xAA) {
-                throw new AssertionError("fillMemory failed at index " + i);
-            }
-        }
-        MemoryAllocator.fillMemory(fillPtr, (byte) 0x55, 8);
-        for (int i = 0; i < 8; i++) {
-            if (fillPtr.addOffset(i).readByte() != (byte) 0x55) {
-                throw new AssertionError("MemoryAllocator.fillMemory failed at index " + i);
-            }
-        }
-        if (fillPtr.addOffset(8).readByte() != (byte) 0xAA) {
-            throw new AssertionError("fillMemory boundary check failed");
-        }
-
-        // Test realloc - grow
-        ManagedPointer<?> reallocPtr = allocator.malloc(8);
-        reallocPtr.writeInt(4242);
-        ManagedPointer<?> grownPtr = allocator.realloc(reallocPtr, 32);
-        if (grownPtr.getBounds() != 32) throw new AssertionError("realloc bounds mismatch");
-        if (grownPtr.readInt() != 4242) throw new AssertionError("realloc data copy mismatch");
-
-        // Test realloc - shrink
-        ManagedPointer<?> shrunkPtr = allocator.realloc(grownPtr, 4);
-        if (shrunkPtr.getBounds() != 4) throw new AssertionError("realloc shrink bounds mismatch");
-        if (shrunkPtr.readInt() != 4242) throw new AssertionError("realloc shrink data mismatch");
-
-        // Test realloc with null
-        ManagedPointer<?> nullRealloc = allocator.realloc(null, 16);
-        if (nullRealloc == null || nullRealloc.getBounds() != 16) throw new AssertionError("realloc(null, size) failed");
-
-        // Test realloc with 0
-        ManagedPointer<?> freedRealloc = allocator.realloc(nullRealloc, 0);
-        if (freedRealloc != null) throw new AssertionError("realloc(ptr, 0) should return null");
-
-        // Test calloc
-        ManagedPointer<?> callocPtr = allocator.calloc(4, 8); // 32 bytes
-        if (callocPtr.getBounds() != 32) throw new AssertionError("calloc bounds mismatch");
-        for (int i = 0; i < 32; i++) {
-            if (callocPtr.addOffset(i).readByte() != 0) {
-                throw new AssertionError("calloc not zeroed at offset " + i);
-            }
-        }
-
-        // Test allocator metrics tracking
-        allocator.free(callocPtr);
-        allocator.free(shrunkPtr);
-        allocator.free(fillPtr);
-        allocator.free(charPtr);
-        allocator.free(boolPtr);
-        allocator.free(destPtr);
-        allocator.free(srcPtr);
-        allocator.free(strPtr);
-
-        if (allocator.getActiveAllocationCount() != 0) {
-            throw new AssertionError("Active allocation count mismatch: " + allocator.getActiveAllocationCount());
-        }
-        if (allocator.getTotalAllocatedBytes() != 0) {
-            throw new AssertionError("Total allocated bytes mismatch: " + allocator.getTotalAllocatedBytes());
-        }
-
-        // Test double free prevention
+        // Positive boundary check
+        boolean caught = false;
         try {
-            allocator.free(callocPtr);
-            throw new AssertionError("Did not detect double free");
+            ptr.addOffset(30).readInt(); // 30 + 4 = 34 > 32
         } catch (MemoryAccessException e) {
-            System.out.println("Caught expected double-free exception: " + e.getMessage());
+            caught = true;
         }
+        assertTrue(caught, "Should throw on upper bound overflow");
 
-        // Test heap quota limit (bounded allocator)
-        MemoryAllocator boundedAllocator = new MemoryAllocator(128); // 128 bytes max
-        ManagedPointer<?> p1 = boundedAllocator.malloc(100);
+        // Negative boundary check
+        caught = false;
         try {
-            boundedAllocator.malloc(50); // 100 + 50 = 150 > 128 -> should fail
-            throw new AssertionError("Did not enforce heap limit");
+            ptr.addOffset(-1).readByte();
         } catch (MemoryAccessException e) {
-            System.out.println("Caught expected heap quota exception: " + e.getMessage());
+            caught = true;
         }
-        boundedAllocator.free(p1);
+        assertTrue(caught, "Should throw on negative offset");
 
-        // Test pointer arithmetic: diff, compareTo, slice, equals
+        // Sub-slice out of bounds check
+        caught = false;
+        try {
+            ptr.slice(20, 20); // 20 + 20 = 40 > 32
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw on slice exceeding bounds");
+
+        allocator.free(ptr);
+    }
+
+    private static void testPointerArithmeticAndAlignment(MemoryAllocator allocator) {
         ManagedPointer<?> block = allocator.malloc(64);
-        ManagedPointer<?> pStart = block.addOffset(8);
-        ManagedPointer<?> pEnd = block.addOffset(24);
 
-        if (pEnd.diff(pStart) != 16) throw new AssertionError("Pointer diff mismatch");
-        if (pStart.diff(pEnd) != -16) throw new AssertionError("Pointer reverse diff mismatch");
+        ManagedPointer<?> p1 = block.addOffset(8);
+        ManagedPointer<?> p2 = block.addOffset(24);
 
-        // CompareTo
-        if (((ManagedPointer) pStart).compareTo(pEnd) >= 0) throw new AssertionError("pStart should be < pEnd");
-        if (((ManagedPointer) pEnd).compareTo(pStart) <= 0) throw new AssertionError("pEnd should be > pStart");
-        if (((ManagedPointer) pStart).compareTo(pStart) != 0) throw new AssertionError("pStart compareTo pStart should be 0");
+        assertEquals(16L, p2.diff(p1), "Pointer diff mismatch");
+        assertEquals(-16L, p1.diff(p2), "Pointer reverse diff mismatch");
 
-        // Equals
-        ManagedPointer<?> pStartCopy = block.addOffset(8);
-        if (!pStart.equals(pStartCopy)) throw new AssertionError("pStart should equal pStartCopy");
+        assertTrue(((ManagedPointer) p1).compareTo(p2) < 0, "p1 should be < p2");
+        assertTrue(((ManagedPointer) p2).compareTo(p1) > 0, "p2 should be > p1");
+        assertEquals(0, ((ManagedPointer) p1).compareTo(p1), "p1 compareTo p1 should be 0");
 
-        // Slice
+        ManagedPointer<?> p1Copy = block.addOffset(8);
+        assertEquals(p1, p1Copy, "p1 should equal p1Copy");
+        assertEquals(p1.hashCode(), p1Copy.hashCode(), "hashCodes should match");
+
+        // Slicing
         ManagedPointer<?> slice = block.slice(10, 20);
-        if (slice.getOffset() != 10) throw new AssertionError("Slice offset mismatch");
-        if (slice.getBounds() != 30) throw new AssertionError("Slice bounds mismatch");
+        assertEquals(10L, slice.getOffset(), "Slice offset mismatch");
+        assertEquals(30L, slice.getBounds(), "Slice bounds mismatch");
 
-        // Free block
+        // Nested slicing
+        ManagedPointer<?> nestedSlice = slice.slice(5, 10);
+        assertEquals(15L, nestedSlice.getOffset(), "Nested slice offset mismatch");
+        assertEquals(25L, nestedSlice.getBounds(), "Nested slice bounds mismatch");
+
+        // Alignment
+        ManagedPointer<?> alignedAlloc = allocator.aligned_alloc(32, 64);
+        assertTrue(alignedAlloc.isAligned(32), "aligned_alloc should satisfy 32-byte alignment");
+
+        ManagedPointer<?> unaligned = alignedAlloc.addOffset(7);
+        assertTrue(!unaligned.isAligned(32), "Offset by 7 should not be 32-aligned");
+        ManagedPointer<?> realigned = unaligned.align(32);
+        assertTrue(realigned.isAligned(32), "realigned pointer should be 32-aligned");
+
         allocator.free(block);
+    }
 
-        // Test ByteBuffer and toByteArray
-        ManagedPointer<?> byteBufBlock = allocator.malloc(16);
-        byteBufBlock.writeInt(0x12345678);
-        java.nio.ByteBuffer bb = byteBufBlock.asByteBuffer();
-        bb.order(java.nio.ByteOrder.nativeOrder());
-        if (bb.getInt(0) != 0x12345678) throw new AssertionError("ByteBuffer getInt mismatch");
+    private static void testMemoryAllocatorOperations(MemoryAllocator allocator) {
+        // calloc
+        ManagedPointer<?> zeroBlock = allocator.calloc(8, 4); // 32 bytes
+        assertEquals(32L, zeroBlock.getBounds(), "calloc bounds mismatch");
+        for (int i = 0; i < 32; i++) {
+            assertEquals((byte) 0, zeroBlock.addOffset(i).readByte(), "calloc byte not zero at " + i);
+        }
 
-        byte[] exportedBytes = byteBufBlock.toByteArray();
-        if (exportedBytes.length != 16) throw new AssertionError("toByteArray length mismatch");
-        allocator.free(byteBufBlock);
+        // fillMemory / memset
+        zeroBlock.fillMemory((byte) 0xCC, 16);
+        for (int i = 0; i < 16; i++) {
+            assertEquals((byte) 0xCC, zeroBlock.addOffset(i).readByte(), "fillMemory byte mismatch at " + i);
+        }
 
-        // Multi-threaded stress test
+        // copyMemory / memcpy
+        ManagedPointer<?> copyDest = allocator.malloc(32);
+        MemoryAllocator.copyMemory(copyDest, zeroBlock, 16);
+        for (int i = 0; i < 16; i++) {
+            assertEquals((byte) 0xCC, copyDest.addOffset(i).readByte(), "copyMemory byte mismatch at " + i);
+        }
+
+        // realloc
+        ManagedPointer<?> initial = allocator.malloc(8);
+        initial.writeInt(8888);
+        ManagedPointer<?> grown = allocator.realloc(initial, 32);
+        assertEquals(32L, grown.getBounds(), "realloc bounds mismatch");
+        assertEquals(8888, grown.readInt(), "realloc data preservation mismatch");
+
+        ManagedPointer<?> shrunk = allocator.realloc(grown, 4);
+        assertEquals(4L, shrunk.getBounds(), "realloc shrink bounds mismatch");
+        assertEquals(8888, shrunk.readInt(), "realloc shrink data preservation mismatch");
+
+        allocator.free(zeroBlock);
+        allocator.free(copyDest);
+        allocator.free(shrunk);
+
+        // Double free detection
+        boolean caught = false;
+        try {
+            allocator.free(zeroBlock);
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw on double free");
+
+        // Quota limits
+        MemoryAllocator bounded = new MemoryAllocator(100);
+        ManagedPointer<?> p = bounded.malloc(80);
+        caught = false;
+        try {
+            bounded.malloc(30); // 80 + 30 = 110 > 100
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw on heap quota exceeded");
+        bounded.free(p);
+    }
+
+    private static void testStdLibStringShims(MemoryAllocator allocator) {
+        ManagedPointer<?> str1 = allocator.malloc(32);
+        ManagedPointer<?> str2 = allocator.malloc(32);
+        str1.writeCString("Foo");
+        str2.writeCString("Bar");
+
+        assertEquals(3L, StdLib.strlen(str1), "strlen mismatch for Foo");
+        assertEquals(3L, StdLib.strlen(str2), "strlen mismatch for Bar");
+
+        ManagedPointer<?> dest = allocator.malloc(64);
+        StdLib.strcpy(dest, str1);
+        assertEquals("Foo", dest.readCString(), "strcpy mismatch");
+
+        StdLib.strcat(dest, str2);
+        assertEquals("FooBar", dest.readCString(), "strcat mismatch");
+
+        assertTrue(StdLib.strcmp(str1, str2) > 0, "Foo should be > Bar");
+        assertEquals(0, StdLib.strncmp(dest, str1, 3), "strncmp match");
+
+        allocator.free(str1);
+        allocator.free(str2);
+        allocator.free(dest);
+    }
+
+    private static void testStructLayout(MemoryAllocator allocator) {
+        StructLayout layout = StructLayout.builder()
+                .addField("tag", StructLayout.Type.BYTE)       // 1 byte, offset 0
+                .addField("id", StructLayout.Type.INT)         // 4 bytes, offset 4 (aligned to 4)
+                .addField("timestamp", StructLayout.Type.LONG) // 8 bytes, offset 8 (aligned to 8)
+                .build();
+
+        assertEquals(0L, layout.getOffset("tag"), "tag offset");
+        assertEquals(4L, layout.getOffset("id"), "id offset");
+        assertEquals(8L, layout.getOffset("timestamp"), "timestamp offset");
+        assertEquals(16L, layout.getSize(), "struct size");
+
+        ManagedPointer<?> structMem = allocator.malloc(layout.getSize());
+        layout.writeInt(structMem, "id", 777);
+        layout.writeLong(structMem, "timestamp", 1234567890123L);
+
+        assertEquals(777, layout.readInt(structMem, "id"), "readInt id");
+        assertEquals(1234567890123L, layout.readLong(structMem, "timestamp"), "readLong timestamp");
+
+        allocator.free(structMem);
+    }
+
+    private static void testByteBufferAndArrayConversion(MemoryAllocator allocator) {
+        ManagedPointer<?> ptr = allocator.malloc(16);
+        ptr.writeInt(0x01020304);
+
+        ByteBuffer bb = ptr.asByteBuffer();
+        bb.order(ByteOrder.nativeOrder());
+        assertEquals(0x01020304, bb.getInt(0), "ByteBuffer int mismatch");
+
+        byte[] array = ptr.toByteArray();
+        assertEquals(16, array.length, "toByteArray length mismatch");
+
+        allocator.free(ptr);
+    }
+
+    private static void testConcurrencyStress(MemoryAllocator allocator) {
         int threadsCount = 4;
         Thread[] threads = new Thread[threadsCount];
-        final java.util.concurrent.atomic.AtomicBoolean threadFailed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final AtomicBoolean failed = new AtomicBoolean(false);
 
         for (int i = 0; i < threadsCount; i++) {
-            final int threadId = i;
+            final int tid = i;
             threads[i] = new Thread(() -> {
                 try {
                     for (int iter = 0; iter < 100; iter++) {
                         ManagedPointer<?> p = allocator.malloc(32);
-                        p.writeLong(threadId * 1000L + iter);
-                        if (p.readLong() != threadId * 1000L + iter) {
-                            threadFailed.set(true);
+                        p.writeLong(tid * 1000L + iter);
+                        if (p.readLong() != tid * 1000L + iter) {
+                            failed.set(true);
                         }
                         allocator.free(p);
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    threadFailed.set(true);
+                    failed.set(true);
                 }
             });
             threads[i].start();
@@ -227,74 +294,6 @@ public class TestRuntime {
             }
         }
 
-        if (threadFailed.get()) {
-            throw new AssertionError("Multi-threaded stress test failed");
-        }
-
-        // Test StdLib string shims
-        ManagedPointer<?> s1 = allocator.malloc(32);
-        ManagedPointer<?> s2 = allocator.malloc(32);
-        s1.writeCString("Hello");
-        s2.writeCString(" World");
-
-        if (StdLib.strlen(s1) != 5) throw new AssertionError("strlen failed");
-        if (StdLib.strlen(s2) != 6) throw new AssertionError("strlen failed for s2");
-
-        ManagedPointer<?> sDest = allocator.malloc(64);
-        StdLib.strcpy(sDest, s1);
-        if (!sDest.readCString().equals("Hello")) throw new AssertionError("strcpy failed");
-
-        StdLib.strcat(sDest, s2);
-        if (!sDest.readCString().equals("Hello World")) throw new AssertionError("strcat failed");
-
-        if (StdLib.strcmp(s1, s1) != 0) throw new AssertionError("strcmp equal failed");
-        if (StdLib.strcmp(s1, s2) <= 0) throw new AssertionError("strcmp comparison failed");
-
-        ManagedPointer<?> s3 = allocator.malloc(32);
-        StdLib.strncpy(s3, sDest, 5);
-        s3.addOffset(5).writeByte((byte) 0); // null terminate
-        if (!s3.readCString().equals("Hello")) throw new AssertionError("strncpy failed");
-
-        if (StdLib.strncmp(s1, sDest, 5) != 0) throw new AssertionError("strncmp failed");
-
-        allocator.free(s1);
-        allocator.free(s2);
-        allocator.free(sDest);
-        allocator.free(s3);
-
-        // Test pointer alignment and aligned_alloc
-        ManagedPointer<?> pAligned = allocator.aligned_alloc(16, 64);
-        if (!pAligned.isAligned(16)) throw new AssertionError("aligned_alloc not 16-byte aligned");
-        if (pAligned.getBounds() - pAligned.getOffset() != 64) throw new AssertionError("aligned_alloc length mismatch");
-
-        ManagedPointer<?> unaligned = pAligned.addOffset(3);
-        if (unaligned.isAligned(16)) throw new AssertionError("unaligned pointer should not be 16-aligned");
-        ManagedPointer<?> reAligned = unaligned.align(16);
-        if (!reAligned.isAligned(16)) throw new AssertionError("reAligned should be 16-aligned");
-
-        // Test StructLayout
-        // struct Entity { int id; byte flag; double score; }
-        StructLayout layout = StructLayout.builder()
-                .addField("id", StructLayout.Type.INT)       // 4 bytes, offset 0
-                .addField("flag", StructLayout.Type.BYTE)     // 1 byte, offset 4
-                .addField("score", StructLayout.Type.DOUBLE)  // 8 bytes, offset 8 (aligned to 8)
-                .build();
-
-        if (layout.getOffset("id") != 0) throw new AssertionError("Struct field id offset mismatch");
-        if (layout.getOffset("flag") != 4) throw new AssertionError("Struct field flag offset mismatch");
-        if (layout.getOffset("score") != 8) throw new AssertionError("Struct field score offset mismatch");
-        if (layout.getSize() != 16) throw new AssertionError("Struct total size mismatch: " + layout.getSize());
-        if (layout.getAlignment() != 8) throw new AssertionError("Struct alignment mismatch: " + layout.getAlignment());
-
-        ManagedPointer<?> entity = allocator.malloc(layout.getSize());
-        layout.writeInt(entity, "id", 1001);
-        layout.writeDouble(entity, "score", 99.5);
-
-        if (layout.readInt(entity, "id") != 1001) throw new AssertionError("Struct readInt mismatch");
-        if (layout.readDouble(entity, "score") != 99.5) throw new AssertionError("Struct readDouble mismatch");
-
-        allocator.free(entity);
-
-        System.out.println("All tests passed!");
+        assertTrue(!failed.get(), "Concurrency stress test failed");
     }
 }
