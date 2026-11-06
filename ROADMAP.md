@@ -4,6 +4,7 @@
 - [x] Basic pointer representation (`ManagedPointer<T>`)
 - [x] Primitive read/write operations (byte, boolean, char, short, int, long, float, double, pointer)
 - [x] Memory allocator with `malloc`, `realloc`, and `free`
+- [x] Memory pooling strategy (`allocatePooled`, `freePooled`) for fast block recycling
 - [x] Memory utilities: `copyMemory` (memcpy) and `fillMemory` (memset)
 - [x] Null-terminated C-String read/write support
 

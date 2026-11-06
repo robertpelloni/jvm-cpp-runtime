@@ -6,11 +6,17 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.Map;
+
 public final class MemoryAllocator {
     private final long maxHeapBytes;
     private final AtomicLong activeAllocations = new AtomicLong(0);
     private final AtomicLong totalAllocatedBytes = new AtomicLong(0);
     private final Set<Object> activeBlocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    // Fast memory pools for recycling common allocation sizes (e.g. 32, 64, 128, 256 bytes)
+    private final Map<Long, ConcurrentLinkedQueue<ManagedPointer<?>>> freePools = new ConcurrentHashMap<>();
 
     public MemoryAllocator() {
         this(Long.MAX_VALUE);
@@ -55,6 +61,41 @@ public final class MemoryAllocator {
         totalAllocatedBytes.addAndGet(size);
 
         return pointer;
+    }
+
+    /**
+     * Allocates a pooled memory block of specified size. If a free block of that size exists,
+     * it is reused, avoiding GC churn and fragmentation.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> ManagedPointer<T> allocatePooled(long size) {
+        ConcurrentLinkedQueue<ManagedPointer<?>> pool = freePools.get(size);
+        if (pool != null) {
+            ManagedPointer<?> reused = pool.poll();
+            if (reused != null) {
+                // Re-register block as active
+                activeBlocks.add(reused.getBase());
+                activeAllocations.incrementAndGet();
+                totalAllocatedBytes.addAndGet(size);
+                return (ManagedPointer<T>) reused;
+            }
+        }
+        return malloc(size);
+    }
+
+    /**
+     * Recycles a pointer into the free pool for its size, zeroing the contents and making it
+     * immediately available for subsequent allocatePooled requests.
+     */
+    public void freePooled(ManagedPointer<?> pointer) {
+        if (pointer == null) {
+            return;
+        }
+        long size = pointer.getBounds();
+        // Free and sanitize
+        free(pointer);
+        // Add to recycling pool
+        freePools.computeIfAbsent(size, k -> new ConcurrentLinkedQueue<>()).offer(pointer);
     }
 
     /**

@@ -32,6 +32,7 @@ public class TestRuntime {
         testStdLibStringShims(allocator);
         testStructLayout(allocator);
         testByteBufferAndArrayConversion(allocator);
+        testMemoryPoolRecycling(allocator);
         testConcurrencyStress(allocator);
 
         System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
@@ -260,6 +261,21 @@ public class TestRuntime {
         assertEquals(16, array.length, "toByteArray length mismatch");
 
         allocator.free(ptr);
+    }
+
+    private static void testMemoryPoolRecycling(MemoryAllocator allocator) {
+        ManagedPointer<?> p1 = allocator.allocatePooled(64);
+        p1.writeLong(0x1122334455667788L);
+        Object base1 = p1.getBase();
+
+        allocator.freePooled(p1);
+
+        // Next allocation of same size should recycle the same underlying base array
+        ManagedPointer<?> p2 = allocator.allocatePooled(64);
+        assertEquals(base1, p2.getBase(), "allocatePooled should reuse block from pool");
+        assertEquals((byte) 0, p2.readByte(), "reused pooled block should be sanitized/zeroed");
+
+        allocator.free(p2);
     }
 
     private static void testConcurrencyStress(MemoryAllocator allocator) {

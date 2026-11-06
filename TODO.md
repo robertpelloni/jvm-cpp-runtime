@@ -10,4 +10,5 @@
 - [x] Support aligned pointer operations (`isAligned`, `align`, `aligned_alloc`).
 - [x] Support structured layouts (`StructLayout` builder, natural alignment, field offsets).
 - [x] Refactor and modularize `TestRuntime` into descriptive, structured test suites.
+- [x] Implement memory pooling and sub-allocation strategy in `MemoryAllocator` (`allocatePooled`, `freePooled`).
 - [ ] Explore JDK 21 `MemorySegment` implementation alongside `Unsafe`.
