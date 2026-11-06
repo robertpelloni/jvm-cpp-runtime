@@ -33,6 +33,7 @@ public class TestRuntime {
         testStructLayout(allocator);
         testByteBufferAndArrayConversion(allocator);
         testMemoryPoolRecycling(allocator);
+        testEdgeConditionsAndBoundaryLimits(allocator);
         testConcurrencyStress(allocator);
 
         System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
@@ -288,6 +289,53 @@ public class TestRuntime {
         assertEquals(16, array.length, "toByteArray length mismatch");
 
         allocator.free(ptr);
+    }
+
+    private static void testEdgeConditionsAndBoundaryLimits(MemoryAllocator allocator) {
+        ManagedPointer<?> block = allocator.malloc(8);
+
+        // Valid read at the very last byte (offset 7, size 1)
+        block.addOffset(7).writeByte((byte) 99);
+        assertEquals((byte) 99, block.addOffset(7).readByte(), "Boundary 1-byte read");
+
+        // Invalid 2-byte read at offset 7 (7 + 2 = 9 > 8)
+        boolean caught = false;
+        try {
+            block.addOffset(7).readShort();
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw for 2-byte read at boundary offset 7");
+
+        // Invalid 4-byte read at offset 5 (5 + 4 = 9 > 8)
+        caught = false;
+        try {
+            block.addOffset(5).readInt();
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw for 4-byte read at boundary offset 5");
+
+        // Invalid 8-byte read at offset 1 (1 + 8 = 9 > 8)
+        caught = false;
+        try {
+            block.addOffset(1).readLong();
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw for 8-byte read at boundary offset 1");
+
+        // Zero-length allocations, slices, and fills
+        ManagedPointer<?> zeroPtr = allocator.malloc(0);
+        assertEquals(0L, zeroPtr.getBounds(), "Zero length bounds");
+        zeroPtr.fillMemory((byte) 0, 0); // No-op, should not throw
+        MemoryAllocator.copyMemory(zeroPtr, zeroPtr, 0); // No-op, should not throw
+
+        ManagedPointer<?> zeroSlice = block.slice(0, 0);
+        assertEquals(0L, zeroSlice.getBounds() - zeroSlice.getOffset(), "Zero length slice");
+
+        allocator.free(block);
+        allocator.free(zeroPtr);
     }
 
     private static void testMemoryPoolRecycling(MemoryAllocator allocator) {
