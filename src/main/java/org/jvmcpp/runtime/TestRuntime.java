@@ -222,9 +222,36 @@ public class TestRuntime {
         assertTrue(StdLib.strcmp(str1, str2) > 0, "Foo should be > Bar");
         assertEquals(0, StdLib.strncmp(dest, str1, 3), "strncmp match");
 
+        // sprintf
+        ManagedPointer<?> sprBuf = allocator.malloc(64);
+        int written = StdLib.sprintf(sprBuf, "Code %d: %.2f", 404, 3.14);
+        assertTrue(written > 0, "sprintf returned written bytes");
+        assertEquals("Code 404: 3.14", sprBuf.readCString(), "sprintf output mismatch");
+
+        // sprintf overflow check
+        ManagedPointer<?> tinyBuf = allocator.malloc(4);
+        boolean caught = false;
+        try {
+            StdLib.sprintf(tinyBuf, "Long string exceeding bounds");
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "sprintf should throw on buffer overflow");
+
+        // math.h routines
+        assertEquals(5.0, StdLib.fabs(-5.0), "fabs");
+        assertEquals(3.0, StdLib.sqrt(9.0), "sqrt");
+        assertEquals(8.0, StdLib.pow(2.0, 3.0), "pow");
+        assertEquals(0.0, StdLib.sin(0.0), "sin");
+        assertEquals(1.0, StdLib.cos(0.0), "cos");
+        assertEquals(2.0, StdLib.floor(2.9), "floor");
+        assertEquals(3.0, StdLib.ceil(2.1), "ceil");
+
         allocator.free(str1);
         allocator.free(str2);
         allocator.free(dest);
+        allocator.free(sprBuf);
+        allocator.free(tinyBuf);
     }
 
     private static void testStructLayout(MemoryAllocator allocator) {

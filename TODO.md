@@ -11,4 +11,6 @@
 - [x] Support structured layouts (`StructLayout` builder, natural alignment, field offsets).
 - [x] Refactor and modularize `TestRuntime` into descriptive, structured test suites.
 - [x] Implement memory pooling and sub-allocation strategy in `MemoryAllocator` (`allocatePooled`, `freePooled`).
+- [x] Expand `StdLib` with formatted output (`sprintf`) and math routines (`fabs`, `sqrt`, `pow`, etc.).
+- [x] Implement benchmarking suite (`BenchmarkRuntime.java`).
 - [ ] Explore JDK 21 `MemorySegment` implementation alongside `Unsafe`.

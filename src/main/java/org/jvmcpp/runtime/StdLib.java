@@ -136,4 +136,55 @@ public final class StdLib {
         strcpy(dest.addOffset(destLen), src);
         return dest;
     }
+
+    /**
+     * Formats string into destination pointer with bounds enforcement (sprintf).
+     */
+    public static int sprintf(ManagedPointer<?> dest, String format, Object... args) {
+        if (dest == null || format == null) {
+            throw new IllegalArgumentException("Destination and format string cannot be null");
+        }
+        String formatted = String.format(format, args);
+        byte[] bytes = formatted.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        long required = bytes.length + 1; // +1 for null terminator
+
+        if (dest.getOffset() < 0 || dest.getOffset() + required > dest.getBounds()) {
+            throw new MemoryAccessException("sprintf buffer overflow: required=" + required + ", bounds=" + dest.getBounds() + ", offset=" + dest.getOffset());
+        }
+
+        for (int i = 0; i < bytes.length; i++) {
+            dest.addOffset(i).writeByte(bytes[i]);
+        }
+        dest.addOffset(bytes.length).writeByte((byte) 0);
+        return bytes.length;
+    }
+
+    // Standard C math.h routines
+    public static double fabs(double x) {
+        return Math.abs(x);
+    }
+
+    public static double sqrt(double x) {
+        return Math.sqrt(x);
+    }
+
+    public static double pow(double base, double exp) {
+        return Math.pow(base, exp);
+    }
+
+    public static double sin(double x) {
+        return Math.sin(x);
+    }
+
+    public static double cos(double x) {
+        return Math.cos(x);
+    }
+
+    public static double floor(double x) {
+        return Math.floor(x);
+    }
+
+    public static double ceil(double x) {
+        return Math.ceil(x);
+    }
 }
