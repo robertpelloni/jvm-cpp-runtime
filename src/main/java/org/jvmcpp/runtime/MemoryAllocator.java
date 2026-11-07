@@ -13,7 +13,7 @@ public final class MemoryAllocator {
     private final long maxHeapBytes;
     private final AtomicLong activeAllocations = new AtomicLong(0);
     private final AtomicLong totalAllocatedBytes = new AtomicLong(0);
-    private final Set<Object> activeBlocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Map<Object, Long> allocatedBlockSizes = new ConcurrentHashMap<>();
 
     // Fast memory pools for recycling common allocation sizes (e.g. 32, 64, 128, 256 bytes)
     private final Map<Long, ConcurrentLinkedQueue<ManagedPointer<?>>> freePools = new ConcurrentHashMap<>();
@@ -56,7 +56,7 @@ public final class MemoryAllocator {
         byte[] memoryBlock = new byte[(int) size];
         ManagedPointer<T> pointer = new ManagedPointer<>(memoryBlock, 0, size);
 
-        activeBlocks.add(memoryBlock);
+        allocatedBlockSizes.put(memoryBlock, size);
         activeAllocations.incrementAndGet();
         totalAllocatedBytes.addAndGet(size);
 
@@ -73,11 +73,16 @@ public final class MemoryAllocator {
         if (pool != null) {
             ManagedPointer<?> reused = pool.poll();
             if (reused != null) {
-                // Re-register block as active
-                activeBlocks.add(reused.getBase());
+                if (totalAllocatedBytes.get() + size > maxHeapBytes) {
+                    // Re-add to pool and throw quota exception
+                    pool.offer(reused);
+                    throw new MemoryAccessException("Out of memory: pooled allocation of " + size + " bytes exceeds heap limit of " + maxHeapBytes + " bytes");
+                }
+                // Re-register block as active with exact size and offset reset to 0
+                allocatedBlockSizes.put(reused.getBase(), size);
                 activeAllocations.incrementAndGet();
                 totalAllocatedBytes.addAndGet(size);
-                return (ManagedPointer<T>) reused;
+                return new ManagedPointer<>(reused.getBase(), 0, size);
             }
         }
         return malloc(size);
@@ -143,12 +148,13 @@ public final class MemoryAllocator {
     public void free(ManagedPointer<?> pointer) {
         if (pointer != null) {
             Object base = pointer.getBase();
-            if (base != null && !activeBlocks.remove(base)) {
+            Long originalSize = base != null ? allocatedBlockSizes.remove(base) : null;
+            if (originalSize == null) {
                 throw new MemoryAccessException("Double free or invalid pointer deallocation");
             }
             pointer.free();
             activeAllocations.decrementAndGet();
-            totalAllocatedBytes.addAndGet(-pointer.getBounds());
+            totalAllocatedBytes.addAndGet(-originalSize);
         }
     }
 

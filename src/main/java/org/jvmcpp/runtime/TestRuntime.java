@@ -375,7 +375,32 @@ public class TestRuntime {
         // Next allocation of same size should recycle the same underlying base array
         ManagedPointer<?> p2 = allocator.allocatePooled(64);
         assertEquals(base1, p2.getBase(), "allocatePooled should reuse block from pool");
+        assertEquals(0L, p2.getOffset(), "reused pooled block offset should be reset to 0");
         assertEquals((byte) 0, p2.readByte(), "reused pooled block should be sanitized/zeroed");
+
+        // Test quota enforcement on pooled reuse
+        MemoryAllocator quotaAllocator = new MemoryAllocator(64);
+        ManagedPointer<?> q1 = quotaAllocator.malloc(64);
+        quotaAllocator.freePooled(q1);
+
+        ManagedPointer<?> q2 = quotaAllocator.malloc(64);
+        boolean quotaCaught = false;
+        try {
+            quotaAllocator.allocatePooled(64); // pool has block, but quota is exceeded (64 + 64 > 64)
+        } catch (MemoryAccessException e) {
+            quotaCaught = true;
+        }
+        assertTrue(quotaCaught, "allocatePooled should enforce heap quota before reusing");
+        quotaAllocator.free(q2);
+
+        // Test freeing via a sliced pointer decrements the exact allocated block size
+        long bytesBefore = allocator.getTotalAllocatedBytes();
+        long allocsBefore = allocator.getActiveAllocationCount();
+        ManagedPointer<?> fullBlock = allocator.malloc(128);
+        ManagedPointer<?> subSlice = fullBlock.slice(10, 20); // bounds = 30, length = 20
+        allocator.free(subSlice); // should free the underlying 128-byte block accurately
+        assertEquals(bytesBefore, allocator.getTotalAllocatedBytes(), "Total allocated bytes restored after sliced free");
+        assertEquals(allocsBefore, allocator.getActiveAllocationCount(), "Active allocations restored after sliced free");
 
         allocator.free(p2);
     }
