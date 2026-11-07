@@ -6,6 +6,7 @@ import java.nio.ByteBuffer;
 
 public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
     private final Object base;
+    private final long rawAddress;
     private long offset;
     private final long bounds;
 
@@ -24,7 +25,12 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
     }
 
     public ManagedPointer(Object base, long offset, long bounds) {
+        this(base, 0, offset, bounds);
+    }
+
+    public ManagedPointer(Object base, long rawAddress, long offset, long bounds) {
         this.base = base;
+        this.rawAddress = rawAddress;
         this.offset = offset;
         this.bounds = bounds;
     }
@@ -39,7 +45,7 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
         if (base instanceof byte[]) {
             return BYTE_ARRAY_OFFSET + offset;
         } else if (base == null) {
-            return offset;
+            return rawAddress + offset;
         } else {
             return offset; // Logical fallback
         }
@@ -175,7 +181,7 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
 
     public ManagedPointer<T> addOffset(long bytes) {
         long newOffset = offset + bytes;
-        return new ManagedPointer<>(base, newOffset, bounds);
+        return new ManagedPointer<>(base, rawAddress, newOffset, bounds);
     }
 
     /**
@@ -230,6 +236,9 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
         if (sliceOffset < 0 || length < 0 || offset + sliceOffset + length > bounds) {
             throw new MemoryAccessException("Invalid slice range: currentOffset=" + offset + ", sliceOffset=" + sliceOffset + ", length=" + length + ", bounds=" + bounds);
         }
+        if (base == null) {
+            return new ManagedPointer<>(null, rawAddress, offset + sliceOffset, offset + sliceOffset + length);
+        }
         return new ManagedPointer<>(base, offset + sliceOffset, offset + sliceOffset + length);
     }
 
@@ -277,6 +286,13 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
         UNSAFE.setMemory(base, resolveAddress(), bytes, value);
     }
 
+    /**
+     * Checks if this pointer is an off-heap direct native pointer.
+     */
+    public boolean isDirect() {
+        return base == null;
+    }
+
     // Explicit free manipulation
     public void free() {
         if (base instanceof byte[]) {
@@ -284,6 +300,12 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
             for (int i = 0; i < arr.length; i++) {
                 arr[i] = 0;
             }
+        } else if (base == null && rawAddress != 0) {
+            // Zero out off-heap direct memory before freeing
+            if (bounds > 0) {
+                UNSAFE.setMemory(rawAddress, bounds, (byte) 0);
+            }
+            UNSAFE.freeMemory(rawAddress);
         }
     }
 
@@ -324,6 +346,10 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
 
     public long getOffset() {
         return offset;
+    }
+
+    public long getRawAddress() {
+        return rawAddress;
     }
 
     public long getBounds() {

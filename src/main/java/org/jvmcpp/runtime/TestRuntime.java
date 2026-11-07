@@ -35,6 +35,7 @@ public class TestRuntime {
         testMemoryPoolRecycling(allocator);
         testEdgeConditionsAndBoundaryLimits(allocator);
         testCppObjectAndVTable(allocator);
+        testOffHeapDirectMemory(allocator);
         testConcurrencyStress(allocator);
 
         System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
@@ -363,6 +364,36 @@ public class TestRuntime {
         assertEquals(50, result, "Virtual method area() dispatch mismatch");
 
         rectObj.destroy(allocator);
+    }
+
+    private static void testOffHeapDirectMemory(MemoryAllocator allocator) {
+        ManagedPointer<?> directPtr = allocator.mallocDirect(64);
+        assertTrue(directPtr.isDirect(), "mallocDirect pointer should be direct");
+        assertEquals(null, directPtr.getBase(), "Direct pointer base should be null");
+        assertTrue(directPtr.getRawAddress() != 0, "Direct pointer raw address should be non-zero");
+
+        // Test writing and reading primitives off-heap
+        directPtr.writeInt(999999);
+        assertEquals(999999, directPtr.readInt(), "Direct pointer readInt mismatch");
+
+        directPtr.writeDouble(12345.6789);
+        assertEquals(12345.6789, directPtr.readDouble(), "Direct pointer readDouble mismatch");
+
+        // Pointer arithmetic on direct pointer
+        ManagedPointer<?> offsetDirect = directPtr.addOffset(8);
+        offsetDirect.writeLong(0xAABBCCDDEEFF0011L);
+        assertEquals(0xAABBCCDDEEFF0011L, offsetDirect.readLong(), "Offset direct readLong mismatch");
+
+        allocator.free(directPtr);
+
+        // Double free check on direct memory
+        boolean caught = false;
+        try {
+            allocator.free(directPtr);
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw on double free of direct memory");
     }
 
     private static void testMemoryPoolRecycling(MemoryAllocator allocator) {

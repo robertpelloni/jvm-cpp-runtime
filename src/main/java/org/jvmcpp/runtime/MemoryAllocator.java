@@ -14,6 +14,7 @@ public final class MemoryAllocator {
     private final AtomicLong activeAllocations = new AtomicLong(0);
     private final AtomicLong totalAllocatedBytes = new AtomicLong(0);
     private final Map<Object, Long> allocatedBlockSizes = new ConcurrentHashMap<>();
+    private final Map<Long, Long> directAllocations = new ConcurrentHashMap<>();
 
     // Fast memory pools for recycling common allocation sizes (e.g. 32, 64, 128, 256 bytes)
     private final Map<Long, ConcurrentLinkedQueue<ManagedPointer<?>>> freePools = new ConcurrentHashMap<>();
@@ -61,6 +62,36 @@ public final class MemoryAllocator {
         totalAllocatedBytes.addAndGet(size);
 
         return pointer;
+    }
+
+    /**
+     * Allocates unmanaged off-heap direct native memory of specified byte size.
+     */
+    public <T> ManagedPointer<T> mallocDirect(long size) {
+        if (size < 0) {
+            throw new IllegalArgumentException("Invalid allocation size: " + size);
+        }
+
+        if (totalAllocatedBytes.get() + size > maxHeapBytes) {
+            throw new MemoryAccessException("Out of memory: direct allocation of " + size + " bytes exceeds limit of " + maxHeapBytes + " bytes (current: " + totalAllocatedBytes.get() + ")");
+        }
+
+        try {
+            java.lang.reflect.Field f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+            f.setAccessible(true);
+            sun.misc.Unsafe unsafe = (sun.misc.Unsafe) f.get(null);
+
+            long rawAddress = unsafe.allocateMemory(size);
+            ManagedPointer<T> pointer = new ManagedPointer<>(null, rawAddress, 0, size);
+
+            directAllocations.put(rawAddress, size);
+            activeAllocations.incrementAndGet();
+            totalAllocatedBytes.addAndGet(size);
+
+            return pointer;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to allocate off-heap direct memory", e);
+        }
     }
 
     /**
@@ -147,14 +178,25 @@ public final class MemoryAllocator {
      */
     public void free(ManagedPointer<?> pointer) {
         if (pointer != null) {
-            Object base = pointer.getBase();
-            Long originalSize = base != null ? allocatedBlockSizes.remove(base) : null;
-            if (originalSize == null) {
-                throw new MemoryAccessException("Double free or invalid pointer deallocation");
+            if (pointer.isDirect()) {
+                long addr = pointer.getRawAddress();
+                Long originalSize = directAllocations.remove(addr);
+                if (originalSize == null) {
+                    throw new MemoryAccessException("Double free or invalid direct pointer deallocation: " + addr);
+                }
+                pointer.free();
+                activeAllocations.decrementAndGet();
+                totalAllocatedBytes.addAndGet(-originalSize);
+            } else {
+                Object base = pointer.getBase();
+                Long originalSize = base != null ? allocatedBlockSizes.remove(base) : null;
+                if (originalSize == null) {
+                    throw new MemoryAccessException("Double free or invalid pointer deallocation");
+                }
+                pointer.free();
+                activeAllocations.decrementAndGet();
+                totalAllocatedBytes.addAndGet(-originalSize);
             }
-            pointer.free();
-            activeAllocations.decrementAndGet();
-            totalAllocatedBytes.addAndGet(-originalSize);
         }
     }
 

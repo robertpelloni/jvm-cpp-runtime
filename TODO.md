@@ -15,4 +15,5 @@
 - [x] Implement benchmarking suite (`BenchmarkRuntime.java`).
 - [x] Add CLI runner (`Main.java`, `run.sh`, `run.bat`).
 - [x] Define JVM bytecode conventions for C++ objects and vtables (`CppObject.java`, `VTable.java`).
+- [x] Implement off-heap direct native memory allocator (`mallocDirect`).
 - [ ] Explore JDK 21 `MemorySegment` implementation alongside `Unsafe`.
