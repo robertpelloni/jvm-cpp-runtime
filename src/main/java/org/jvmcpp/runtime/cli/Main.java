@@ -1,6 +1,7 @@
 package org.jvmcpp.runtime.cli;
 
 import org.jvmcpp.runtime.BenchmarkRuntime;
+import org.jvmcpp.runtime.IntegrationTest;
 import org.jvmcpp.runtime.MemoryAllocator;
 import org.jvmcpp.runtime.TestRuntime;
 
@@ -24,6 +25,16 @@ public final class Main {
                 System.out.println("[CLI] Running runtime test harness...");
                 TestRuntime.main(new String[0]);
                 break;
+            case "--integration":
+                System.out.println("[CLI] Running integration test suite...");
+                IntegrationTest.main(new String[0]);
+                break;
+            case "--all":
+                System.out.println("[CLI] Running unit test harness...");
+                TestRuntime.main(new String[0]);
+                System.out.println("[CLI] Running integration test suite...");
+                IntegrationTest.main(new String[0]);
+                break;
             case "--bench":
             case "-b":
                 System.out.println("[CLI] Executing benchmark suite...");
@@ -45,7 +56,9 @@ public final class Main {
         System.out.println("Usage: java org.jvmcpp.runtime.cli.Main [options]");
         System.out.println();
         System.out.println("Options:");
-        System.out.println("  --test, -t       Run the TestRuntime test harness");
+        System.out.println("  --test, -t       Run the TestRuntime unit test harness");
+        System.out.println("  --integration    Run the IntegrationTest suite");
+        System.out.println("  --all            Run both unit and integration test suites");
         System.out.println("  --bench, -b      Run the BenchmarkRuntime performance suite");
         System.out.println("  --info, -i       Display runtime memory and allocator information");
         System.out.println("  --version, -v    Display current runtime version");
