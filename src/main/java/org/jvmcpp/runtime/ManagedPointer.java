@@ -2,8 +2,9 @@ package org.jvmcpp.runtime;
 
 import sun.misc.Unsafe;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 
-public final class ManagedPointer<T> {
+public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
     private final Object base;
     private long offset;
     private final long bounds;
@@ -44,6 +45,16 @@ public final class ManagedPointer<T> {
         }
     }
 
+    public boolean readBoolean() {
+        checkBounds(1);
+        return UNSAFE.getBoolean(base, resolveAddress());
+    }
+
+    public void writeBoolean(boolean value) {
+        checkBounds(1);
+        UNSAFE.putBoolean(base, resolveAddress(), value);
+    }
+
     public byte readByte() {
         checkBounds(1);
         return UNSAFE.getByte(base, resolveAddress());
@@ -52,6 +63,16 @@ public final class ManagedPointer<T> {
     public void writeByte(byte value) {
         checkBounds(1);
         UNSAFE.putByte(base, resolveAddress(), value);
+    }
+
+    public char readChar() {
+        checkBounds(2);
+        return UNSAFE.getChar(base, resolveAddress());
+    }
+
+    public void writeChar(char value) {
+        checkBounds(2);
+        UNSAFE.putChar(base, resolveAddress(), value);
     }
 
     public short readShort() {
@@ -157,6 +178,105 @@ public final class ManagedPointer<T> {
         return new ManagedPointer<>(base, newOffset, bounds);
     }
 
+    /**
+     * Checks if current pointer offset/address meets the specified byte alignment.
+     *
+     * @param alignment Must be a positive power of two.
+     */
+    public boolean isAligned(long alignment) {
+        if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
+            throw new IllegalArgumentException("Alignment must be a positive power of two: " + alignment);
+        }
+        return (resolveAddress() % alignment) == 0;
+    }
+
+    /**
+     * Advances pointer forward to the next aligned address for the given alignment.
+     *
+     * @param alignment Must be a positive power of two.
+     * @return Aligned ManagedPointer.
+     */
+    public ManagedPointer<T> align(long alignment) {
+        if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
+            throw new IllegalArgumentException("Alignment must be a positive power of two: " + alignment);
+        }
+        long addr = resolveAddress();
+        long remainder = addr % alignment;
+        if (remainder == 0) {
+            return this;
+        }
+        long padding = alignment - remainder;
+        return addOffset(padding);
+    }
+
+    /**
+     * Calculates the byte difference (pointer distance) between this pointer and another.
+     * Analogous to (ptr1 - ptr2) in C++. Both pointers must share the same base memory block.
+     */
+    public long diff(ManagedPointer<?> other) {
+        if (other == null) {
+            throw new IllegalArgumentException("Cannot calculate pointer diff with null pointer");
+        }
+        if (this.base != other.base) {
+            throw new IllegalArgumentException("Cannot calculate diff between pointers to different memory blocks");
+        }
+        return this.offset - other.offset;
+    }
+
+    /**
+     * Creates a sub-range (slice) pointer with restricted bounds.
+     */
+    public ManagedPointer<T> slice(long sliceOffset, long length) {
+        if (sliceOffset < 0 || length < 0 || offset + sliceOffset + length > bounds) {
+            throw new MemoryAccessException("Invalid slice range: currentOffset=" + offset + ", sliceOffset=" + sliceOffset + ", length=" + length + ", bounds=" + bounds);
+        }
+        return new ManagedPointer<>(base, offset + sliceOffset, offset + sliceOffset + length);
+    }
+
+    @Override
+    public int compareTo(ManagedPointer<T> other) {
+        if (other == null) {
+            throw new NullPointerException("Cannot compare to null ManagedPointer");
+        }
+        if (this.base != other.base) {
+            throw new IllegalArgumentException("Cannot compare pointers from different memory blocks");
+        }
+        return Long.compare(this.offset, other.offset);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof ManagedPointer<?>)) return false;
+        ManagedPointer<?> other = (ManagedPointer<?>) obj;
+        return this.base == other.base && this.offset == other.offset && this.bounds == other.bounds;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = (base != null ? System.identityHashCode(base) : 0);
+        result = 31 * result + Long.hashCode(offset);
+        result = 31 * result + Long.hashCode(bounds);
+        return result;
+    }
+
+    /**
+     * Sets a block of memory to the specified byte value (analogous to C memset).
+     *
+     * @param value The byte value to write.
+     * @param bytes Number of bytes to fill.
+     */
+    public void fillMemory(byte value, long bytes) {
+        if (bytes < 0) {
+            throw new IllegalArgumentException("Cannot fill negative bytes: " + bytes);
+        }
+        if (bytes == 0) {
+            return;
+        }
+        checkBounds(bytes);
+        UNSAFE.setMemory(base, resolveAddress(), bytes, value);
+    }
+
     // Explicit free manipulation
     public void free() {
         if (base instanceof byte[]) {
@@ -165,6 +285,36 @@ public final class ManagedPointer<T> {
                 arr[i] = 0;
             }
         }
+    }
+
+    /**
+     * Returns a ByteBuffer wrapping the underlying memory from current offset to bounds.
+     * Operates zero-copy when backed by on-heap byte[].
+     */
+    public ByteBuffer asByteBuffer() {
+        if (base instanceof byte[]) {
+            byte[] arr = (byte[]) base;
+            int pos = (int) offset;
+            int len = (int) (bounds - offset);
+            return ByteBuffer.wrap(arr, pos, len).slice();
+        } else {
+            throw new UnsupportedOperationException("Zero-copy ByteBuffer only supported on byte[] backed pointers");
+        }
+    }
+
+    /**
+     * Copies data into a new byte array without side effects on offset.
+     */
+    public byte[] toByteArray() {
+        long len = bounds - offset;
+        if (len < 0 || len > Integer.MAX_VALUE) {
+            throw new MemoryAccessException("Invalid length for toByteArray: " + len);
+        }
+        byte[] result = new byte[(int) len];
+        for (int i = 0; i < (int) len; i++) {
+            result[i] = UNSAFE.getByte(base, resolveAddress() + i);
+        }
+        return result;
     }
 
     // Getters
