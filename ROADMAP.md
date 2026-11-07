@@ -15,7 +15,7 @@
 - [ ] Implement multi-tier memory allocators (On-Heap byte arrays vs. Off-Heap direct segments).
 
 ## Milestone 3: Compiler Integration Layer
-- [ ] Define standard JVM bytecode conventions for emitted C++ class instances and vtables.
+- [x] Define standard JVM bytecode conventions for emitted C++ class instances and vtables (`CppObject`, `VTable`).
 - [x] Provide lightweight standard C library shims (`<string.h>` and `<math.h>`: strlen, strcpy, strncpy, strcmp, strncmp, strcat, sprintf, fabs, sqrt, pow, sin, cos, floor, ceil) implemented against `ManagedPointer`.
 - [x] Add benchmarking suite (`BenchmarkRuntime.java`).
 - [x] Add CLI runner (`org.jvmcpp.runtime.cli.Main`, `run.sh`, `run.bat`).

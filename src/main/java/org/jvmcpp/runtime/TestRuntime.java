@@ -34,6 +34,7 @@ public class TestRuntime {
         testByteBufferAndArrayConversion(allocator);
         testMemoryPoolRecycling(allocator);
         testEdgeConditionsAndBoundaryLimits(allocator);
+        testCppObjectAndVTable(allocator);
         testConcurrencyStress(allocator);
 
         System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
@@ -336,6 +337,32 @@ public class TestRuntime {
 
         allocator.free(block);
         allocator.free(zeroPtr);
+    }
+
+    private static void testCppObjectAndVTable(MemoryAllocator allocator) {
+        // Base class: Shape (virtual int area())
+        VTable shapeVTable = new VTable("Shape");
+        int areaSlot = shapeVTable.registerMethod((thisPtr, args) -> 0);
+
+        // Derived class: Rectangle (overrides area())
+        VTable rectVTable = new VTable("Rectangle");
+        rectVTable.setMethod(areaSlot, (thisPtr, args) -> {
+            // Read member variables width (offset 8) and height (offset 12)
+            int width = thisPtr.addOffset(CppObject.MEMBERS_OFFSET).readInt();
+            int height = thisPtr.addOffset(CppObject.MEMBERS_OFFSET + 4).readInt();
+            return width * height;
+        });
+
+        // Instantiate Rectangle object with 8 bytes for members (width + height)
+        CppObject rectObj = new CppObject(allocator, rectVTable, 8);
+        rectObj.getMembersPointer().writeInt(5); // width = 5
+        rectObj.getMembersPointer().addOffset(4).writeInt(10); // height = 10
+
+        assertEquals(rectVTable.getId(), rectObj.getVTableId(), "VTable ID mismatch at offset 0");
+        Object result = rectObj.invokeVirtual(areaSlot);
+        assertEquals(50, result, "Virtual method area() dispatch mismatch");
+
+        rectObj.destroy(allocator);
     }
 
     private static void testMemoryPoolRecycling(MemoryAllocator allocator) {

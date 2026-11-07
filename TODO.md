@@ -14,4 +14,5 @@
 - [x] Expand `StdLib` with formatted output (`sprintf`) and math routines (`fabs`, `sqrt`, `pow`, etc.).
 - [x] Implement benchmarking suite (`BenchmarkRuntime.java`).
 - [x] Add CLI runner (`Main.java`, `run.sh`, `run.bat`).
+- [x] Define JVM bytecode conventions for C++ objects and vtables (`CppObject.java`, `VTable.java`).
 - [ ] Explore JDK 21 `MemorySegment` implementation alongside `Unsafe`.
