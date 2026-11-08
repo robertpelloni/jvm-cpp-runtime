@@ -16,6 +16,6 @@
 
 ## Milestone 3: Compiler Integration Layer
 - [x] Define standard JVM bytecode conventions for emitted C++ class instances and vtables (`CppObject`, `VTable`).
-- [x] Provide lightweight standard C library shims (`<string.h>` and `<math.h>`: strlen, strcpy, strncpy, strcmp, strncmp, strcat, sprintf, fabs, sqrt, pow, sin, cos, floor, ceil) implemented against `ManagedPointer`.
+- [x] Provide lightweight standard C library shims (`<string.h>`, `<math.h>`, `<stdlib.h>`: strlen, strcpy, strncpy, strcmp, strncmp, strcat, sprintf, fabs, sqrt, pow, sin, cos, floor, ceil, atoi, atol, atof, rand, srand, qsort, bsearch) implemented against `ManagedPointer`.
 - [x] Add benchmarking suite (`BenchmarkRuntime.java`).
 - [x] Add CLI runner (`org.jvmcpp.runtime.cli.Main`, `run.sh`, `run.bat`).

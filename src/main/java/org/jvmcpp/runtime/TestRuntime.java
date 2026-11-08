@@ -250,6 +250,53 @@ public class TestRuntime {
         assertEquals(2.0, StdLib.floor(2.9), "floor");
         assertEquals(3.0, StdLib.ceil(2.1), "ceil");
 
+        // stdlib.h numeric parsing
+        ManagedPointer<?> numStr = allocator.malloc(32);
+        numStr.writeCString("-12345");
+        assertEquals(-12345, StdLib.atoi(numStr), "atoi negative integer");
+        numStr.writeCString("9876543210");
+        assertEquals(9876543210L, StdLib.atol(numStr), "atol long integer");
+        numStr.writeCString("3.14159");
+        assertEquals(3.14159, StdLib.atof(numStr), "atof floating point");
+
+        // stdlib.h rand and srand
+        StdLib.srand(42);
+        int r1 = StdLib.rand();
+        int r2 = StdLib.rand();
+        assertTrue(r1 >= 0 && r1 < 32768, "rand() within 0..32767 range");
+        StdLib.srand(42);
+        assertEquals(r1, StdLib.rand(), "srand deterministic reproducibility");
+
+        // stdlib.h qsort and bsearch
+        int count = 5;
+        ManagedPointer<?> sortArr = allocator.malloc(count * 4);
+        int[] rawValues = { 50, 10, 40, 20, 30 };
+        for (int i = 0; i < count; i++) {
+            sortArr.addOffset(i * 4).writeInt(rawValues[i]);
+        }
+
+        StdLib.CmpFunc intCmp = (a, b) -> Integer.compare(a.readInt(), b.readInt());
+        StdLib.qsort(sortArr, count, 4, intCmp);
+
+        for (int i = 0; i < count; i++) {
+            assertEquals((i + 1) * 10, sortArr.addOffset(i * 4).readInt(), "qsort array element sorted at " + i);
+        }
+
+        ManagedPointer<?> searchKey = allocator.malloc(4);
+        searchKey.writeInt(30);
+        ManagedPointer<?> foundPtr = StdLib.bsearch(searchKey, sortArr, count, 4, intCmp);
+        assertTrue(foundPtr != null, "bsearch found key");
+        assertEquals(30, foundPtr.readInt(), "bsearch read match");
+        assertEquals(2 * 4L, foundPtr.diff(sortArr), "bsearch index distance check");
+
+        searchKey.writeInt(99);
+        ManagedPointer<?> notFound = StdLib.bsearch(searchKey, sortArr, count, 4, intCmp);
+        assertTrue(notFound == null, "bsearch returns null on missing element");
+
+        allocator.free(numStr);
+        allocator.free(sortArr);
+        allocator.free(searchKey);
+
         allocator.free(str1);
         allocator.free(str2);
         allocator.free(dest);
