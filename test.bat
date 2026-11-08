@@ -16,4 +16,13 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+if exist "org\jvmcpp\runtime\ffm\TestFFM.class" (
+    echo [test] Running TestFFM...
+    java --enable-preview -cp . org.jvmcpp.runtime.ffm.TestFFM
+    if %ERRORLEVEL% neq 0 (
+        echo [test] FFM tests failed with error %ERRORLEVEL%.
+        exit /b %ERRORLEVEL%
+    )
+)
+
 echo [test] Test execution finished successfully.

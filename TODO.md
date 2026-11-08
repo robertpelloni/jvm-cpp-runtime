@@ -17,4 +17,4 @@
 - [x] Define JVM bytecode conventions for C++ objects and vtables (`CppObject.java`, `VTable.java`).
 - [x] Implement off-heap direct native memory allocator (`mallocDirect`).
 - [x] Implement standard C `<stdlib.h>` shims (`atoi`, `atol`, `atof`, `rand`, `srand`, `qsort`, `bsearch`).
-- [ ] Explore JDK 21 `MemorySegment` implementation alongside `Unsafe`.
+- [x] Explore JDK 21 `MemorySegment` implementation alongside `Unsafe` (`FFMMemoryAdapter.java`, `TestFFM.java`).
