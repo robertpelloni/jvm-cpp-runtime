@@ -36,6 +36,8 @@ public class TestRuntime {
         testEdgeConditionsAndBoundaryLimits(allocator);
         testCppObjectAndVTable(allocator);
         testOffHeapDirectMemory(allocator);
+        testMultidimensionalArrayEmulation(allocator);
+        testPointerTypeCastSimulation(allocator);
         testConcurrencyStress(allocator);
 
         System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
@@ -481,6 +483,49 @@ public class TestRuntime {
         assertEquals(allocsBefore, allocator.getActiveAllocationCount(), "Active allocations restored after sliced free");
 
         allocator.free(p2);
+    }
+
+    private static void testMultidimensionalArrayEmulation(MemoryAllocator allocator) {
+        // Emulates int matrix[3][4] (12 ints = 48 bytes)
+        int rows = 3;
+        int cols = 4;
+        ManagedPointer<?> matrix = allocator.malloc((long) rows * cols * 4);
+
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                long offset = ((long) r * cols + c) * 4;
+                matrix.addOffset(offset).writeInt(r * 100 + c);
+            }
+        }
+
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                long offset = ((long) r * cols + c) * 4;
+                int val = matrix.addOffset(offset).readInt();
+                assertEquals(r * 100 + c, val, "Matrix element at [" + r + "][" + c + "]");
+            }
+        }
+
+        allocator.free(matrix);
+    }
+
+    private static void testPointerTypeCastSimulation(MemoryAllocator allocator) {
+        // Emulates union { int i; byte b[4]; }
+        ManagedPointer<?> pun = allocator.malloc(4);
+        pun.writeInt(0x12345678);
+
+        // Verify individual byte reads regardless of endianness
+        byte b0 = pun.readByte();
+        byte b1 = pun.addOffset(1).readByte();
+        byte b2 = pun.addOffset(2).readByte();
+        byte b3 = pun.addOffset(3).readByte();
+
+        int reconstructed = (java.nio.ByteOrder.nativeOrder() == java.nio.ByteOrder.LITTLE_ENDIAN)
+                ? ((b0 & 0xFF) | ((b1 & 0xFF) << 8) | ((b2 & 0xFF) << 16) | ((b3 & 0xFF) << 24))
+                : (((b0 & 0xFF) << 24) | ((b1 & 0xFF) << 16) | ((b2 & 0xFF) << 8) | (b3 & 0xFF));
+
+        assertEquals(0x12345678, reconstructed, "Type-punning byte reconstruction match");
+        allocator.free(pun);
     }
 
     private static void testConcurrencyStress(MemoryAllocator allocator) {
