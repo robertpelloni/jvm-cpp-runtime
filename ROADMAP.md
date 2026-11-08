@@ -12,7 +12,7 @@
 - [x] Support aligned pointer operations (`isAligned`, `align`, `aligned_alloc`).
 - [x] Support structured layouts (`StructLayout` builder, natural alignment, field offsets).
 - [x] Implement multi-tier memory allocators (On-Heap byte arrays vs. Off-Heap direct segments via `mallocDirect`).
-- [x] Migrate/augment `sun.misc.Unsafe` with Java 21+ `java.lang.foreign.MemorySegment` and `Arena` APIs (`FFMMemoryAdapter.java`, `TestFFM.java`).
+- [x] Migrate/augment `sun.misc.Unsafe` with Java 21+ `java.lang.foreign.MemorySegment` and `Arena` APIs (`FFMMemoryAdapter.java`, `toManagedPointer` bridge, `TestFFM.java`).
 
 ## Milestone 3: Compiler Integration Layer
 - [x] Define standard JVM bytecode conventions for emitted C++ class instances and vtables (`CppObject`, `VTable`).

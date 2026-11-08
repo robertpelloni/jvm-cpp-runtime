@@ -1,5 +1,6 @@
 package org.jvmcpp.runtime.ffm;
 
+import org.jvmcpp.runtime.ManagedPointer;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -78,6 +79,24 @@ public final class FFMMemoryAdapter implements AutoCloseable {
 
     public long getAddress() {
         return segment.address();
+    }
+
+    /**
+     * Bridges this FFM MemorySegment to a bounds-checked ManagedPointer.
+     * The resulting pointer operates directly over the native address of the segment.
+     */
+    public <T> ManagedPointer<T> toManagedPointer() {
+        return new ManagedPointer<>(null, segment.address(), 0, byteSize);
+    }
+
+    /**
+     * Bulk copy bytes into the FFM memory segment.
+     */
+    public void copyFrom(byte[] src, int srcOffset, long destOffset, int length) {
+        if (destOffset < 0 || destOffset + length > byteSize) {
+            throw new IndexOutOfBoundsException("Segment copy overflow: offset=" + destOffset + ", length=" + length + ", size=" + byteSize);
+        }
+        MemorySegment.copy(src, srcOffset, segment, ValueLayout.JAVA_BYTE, destOffset, length);
     }
 
     @Override

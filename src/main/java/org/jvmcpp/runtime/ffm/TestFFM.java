@@ -37,6 +37,32 @@ public class TestFFM {
             assertEquals(999, alignedAdapter.getInt(0), "Aligned segment read/write");
         }
 
+        // Test ManagedPointer bridge from FFM MemorySegment
+        try (FFMMemoryAdapter adapter = new FFMMemoryAdapter(128)) {
+            org.jvmcpp.runtime.ManagedPointer<?> ptr = adapter.toManagedPointer();
+            assertTrue(ptr.isDirect(), "toManagedPointer should be direct off-heap");
+            assertEquals(128L, ptr.getBounds(), "Pointer bounds should match segment size");
+
+            ptr.writeInt(123456);
+            assertEquals(123456, ptr.readInt(), "ManagedPointer readInt over FFM segment");
+
+            // Pointer arithmetic over FFM segment
+            org.jvmcpp.runtime.ManagedPointer<?> offsetPtr = ptr.addOffset(16);
+            offsetPtr.writeDouble(2.71828);
+            assertEquals(2.71828, offsetPtr.readDouble(), "ManagedPointer arithmetic readDouble over FFM");
+
+            // CString over FFM segment
+            org.jvmcpp.runtime.ManagedPointer<?> strPtr = ptr.addOffset(32);
+            strPtr.writeCString("Hello FFM");
+            assertEquals("Hello FFM", strPtr.readCString(), "ManagedPointer CString over FFM segment");
+
+            // Bulk copy
+            byte[] rawBytes = { 10, 20, 30, 40 };
+            adapter.copyFrom(rawBytes, 0, 64, rawBytes.length);
+            assertEquals((byte) 10, ptr.addOffset(64).readByte(), "Bulk copy byte 0");
+            assertEquals((byte) 40, ptr.addOffset(67).readByte(), "Bulk copy byte 3");
+        }
+
         System.out.println("=== ALL FFM TESTS PASSED ===");
     }
 }
