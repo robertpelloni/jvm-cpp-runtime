@@ -16,6 +16,13 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+echo [test] Running TestCLI...
+java -cp . org.jvmcpp.runtime.cli.TestCLI
+if %ERRORLEVEL% neq 0 (
+    echo [test] TestCLI failed with error %ERRORLEVEL%.
+    exit /b %ERRORLEVEL%
+)
+
 if exist "org\jvmcpp\runtime\ffm\TestFFM.class" (
     echo [test] Running TestFFM...
     java --enable-preview -cp . org.jvmcpp.runtime.ffm.TestFFM
