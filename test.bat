@@ -16,6 +16,13 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+echo [test] Running TestCppObject...
+java -cp . org.jvmcpp.runtime.TestCppObject
+if %ERRORLEVEL% neq 0 (
+    echo [test] TestCppObject failed with error %ERRORLEVEL%.
+    exit /b %ERRORLEVEL%
+)
+
 echo [test] Running TestCLI...
 java -cp . org.jvmcpp.runtime.cli.TestCLI
 if %ERRORLEVEL% neq 0 (

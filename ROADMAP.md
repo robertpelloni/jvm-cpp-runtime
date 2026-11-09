@@ -16,6 +16,8 @@
 
 ## Milestone 3: Compiler Integration Layer
 - [x] Define standard JVM bytecode conventions for emitted C++ class instances and vtables (`CppObject`, `VTable`).
+- [x] Support single/multiple inheritance vtable slot copying, method overriding, subobject slicing, and this-pointer thunks (`asSubobject`, `getCompleteObjectPointer`).
+- [x] Support standard virtual destructor conventions at vtable slot 0.
 - [x] Provide lightweight standard C library shims (`<string.h>`, `<math.h>`, `<stdlib.h>`: strlen, strcpy, strncpy, strcmp, strncmp, strcat, sprintf, fabs, sqrt, pow, sin, cos, floor, ceil, atoi, atol, atof, rand, srand, qsort, bsearch) implemented against `ManagedPointer`.
 - [x] Add benchmarking suite (`BenchmarkRuntime.java`).
-- [x] Add CLI runner (`org.jvmcpp.runtime.cli.Main`, `run.sh`, `run.bat`).
+- [x] Add CLI runner (`org.jvmcpp.runtime.cli.Main`, `run.sh`, `run.bat`) and CLI test suite (`TestCLI.java`).

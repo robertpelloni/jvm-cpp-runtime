@@ -8,6 +8,12 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Models the C++ Virtual Method Table (vtable) dispatch mechanism for compiled JVM-C++ code.
  * Each virtual class layout points to a registered VTable ID at offset 0.
+ *
+ * Supports:
+ * - VTable inheritance (inheriting parent method slots and signature indices)
+ * - Virtual method overriding at specific slot indices
+ * - Pure virtual method slots
+ * - Method slot counting and inspection
  */
 public final class VTable {
 
@@ -21,13 +27,26 @@ public final class VTable {
 
     private final long id;
     private final String className;
+    private final VTable parentVTable;
     private final List<VirtualMethod> methodTable = new ArrayList<>();
 
     public VTable(String className) {
+        this(className, null);
+    }
+
+    public VTable(String className, VTable parentVTable) {
         synchronized (VTable.class) {
             this.id = nextVTableId++;
         }
         this.className = className;
+        this.parentVTable = parentVTable;
+
+        if (parentVTable != null) {
+            synchronized (parentVTable) {
+                this.methodTable.addAll(parentVTable.methodTable);
+            }
+        }
+
         VTABLE_REGISTRY.put(this.id, this);
     }
 
@@ -37,6 +56,14 @@ public final class VTable {
 
     public String getClassName() {
         return className;
+    }
+
+    public VTable getParentVTable() {
+        return parentVTable;
+    }
+
+    public synchronized int getMethodCount() {
+        return methodTable.size();
     }
 
     public synchronized int registerMethod(VirtualMethod method) {
@@ -58,7 +85,7 @@ public final class VTable {
         }
         VirtualMethod m = methodTable.get(index);
         if (m == null) {
-            throw new IllegalStateException("Pure virtual method called or uninitialized slot: " + index);
+            throw new IllegalStateException("Pure virtual method called or uninitialized slot: " + index + " in class " + className);
         }
         return m;
     }
@@ -70,7 +97,7 @@ public final class VTable {
             if (t instanceof RuntimeException) {
                 throw (RuntimeException) t;
             }
-            throw new RuntimeException("Virtual method invocation failed on " + className, t);
+            throw new RuntimeException("Virtual method invocation failed on " + className + " at slot " + index, t);
         }
     }
 

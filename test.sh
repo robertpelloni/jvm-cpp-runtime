@@ -12,6 +12,10 @@ java -cp . org.jvmcpp.runtime.TestRuntime
 echo "[test] Running IntegrationTest..."
 java -cp . org.jvmcpp.runtime.IntegrationTest
 
+# Run TestCppObject suite
+echo "[test] Running TestCppObject..."
+java -cp . org.jvmcpp.runtime.TestCppObject
+
 # Run TestCLI suite
 echo "[test] Running TestCLI..."
 java -cp . org.jvmcpp.runtime.cli.TestCLI

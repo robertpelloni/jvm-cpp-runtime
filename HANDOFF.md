@@ -26,7 +26,11 @@
 
 3. **Compiler Integration Layer**:
    - `StructLayout`: Fluent `Builder` for defining structured C/C++ layouts with natural alignment, field offsets, and typed accessors.
-   - `CppObject` & `VTable`: Standard JVM bytecode conventions for C++ class instances with virtual method dispatch (64-bit vptr at offset 0, member variables starting at offset 8).
+   - `CppObject` & `VTable`: Standard JVM bytecode conventions for C++ class instances with virtual method dispatch:
+     - Single and multiple inheritance with parent vtable slot copying and overriding.
+     - Subobject base pointer views (`asSubobject`) and this-pointer adjustment thunks (`getCompleteObjectPointer`).
+     - Virtual destructor invocation convention at vtable slot 0 on `destroy()`.
+     - Pure virtual slot verification.
 
 4. **Standard C Shims (`StdLib`)**:
    - `<string.h>` operations: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `sprintf`.
@@ -46,8 +50,10 @@
 ## Test & Verification Status
 - **Unit Suite (`TestRuntime`)**: 176 assertions passing across 12 modular test suites.
 - **Integration Suite (`IntegrationTest`)**: 898 assertions passing (vector expansion, contiguous struct arrays, polymorphic dispatch, and concurrent pooling).
+- **C++ Object Suite (`TestCppObject`)**: 14 assertions passing (single/multiple inheritance, thunks, virtual destructors, pure virtuals).
+- **CLI Suite (`TestCLI`)**: 29 assertions passing (help, version, info, bench, test runners, invalid options).
 - **FFM Suite (`TestFFM`)**: Scoped allocation, alignment, and `toManagedPointer` bridge tests passing.
-- **Total Assertions**: 1,074+ assertions passing cleanly via `./run.sh --all` and `./test.sh`.
+- **Total Assertions**: 1,117+ assertions passing cleanly via `./run.sh --all` and `./test.sh`.
 
 ## Governance Documentation
 - Fully synchronized: `VERSION.md`, `VISION.md`, `ROADMAP.md`, `TODO.md`, `MEMORY.md`, `DEPLOY.md`, `IDEAS.md`, `CHANGELOG.md`, and `HANDOFF.md`.
