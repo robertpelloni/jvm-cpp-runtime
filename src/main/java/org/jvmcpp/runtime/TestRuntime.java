@@ -27,9 +27,11 @@ public class TestRuntime {
 
         testDynamicPointerArithmeticChain(allocator);
         testPrimitiveTypePunningAndEndianness(allocator);
+        testPointerSubSliceMutationPropagation(allocator);
         testPrimitives(allocator);
         testBoundsAndExceptions(allocator);
         testPointerArithmeticAndAlignment(allocator);
+        testMemoryAllocatorBlockTrackingIntegrity();
         testMemoryAllocatorOperations(allocator);
         testAllocatorQuotaExhaustionRecovery();
         testStdLibStringShims(allocator);
@@ -123,6 +125,48 @@ public class TestRuntime {
         assertEquals(testDouble, mem.readDouble(), "Long written as bits should read back exact double value");
 
         allocator.free(mem);
+    }
+
+    /**
+     * Validates bidirectional data mutation propagation across nested sliced sub-views
+     * and parent allocations, ensuring that in-place updates are immediately visible in both
+     * directions while individual slice bounds and offsets remain strictly isolated.
+     */
+    private static void testPointerSubSliceMutationPropagation(MemoryAllocator allocator) {
+        ManagedPointer<?> root = allocator.malloc(64);
+        root.fillMemory((byte) 0, 64);
+
+        // Create slice Level 1 (offsets 16..48, span 32)
+        ManagedPointer<?> sliceL1 = root.slice(16, 32);
+        assertEquals(16L, sliceL1.getOffset(), "Level 1 slice offset");
+        assertEquals(48L, sliceL1.getBounds(), "Level 1 slice bounds");
+
+        // Create slice Level 2 (offsets 8..24 relative to sliceL1 => root offsets 24..40, span 16)
+        ManagedPointer<?> sliceL2 = sliceL1.slice(8, 16);
+        assertEquals(24L, sliceL2.getOffset(), "Level 2 slice offset relative to root");
+        assertEquals(40L, sliceL2.getBounds(), "Level 2 slice bounds relative to root");
+
+        // Write from Level 2 sub-slice
+        sliceL2.writeInt(0x55AA55AA);
+        assertEquals(0x55AA55AA, sliceL2.readInt(), "Level 2 slice read back");
+        assertEquals(0x55AA55AA, sliceL1.addOffset(8).readInt(), "Level 1 slice reflects Level 2 write at offset 8");
+        assertEquals(0x55AA55AA, root.addOffset(24).readInt(), "Root reflects Level 2 write at offset 24");
+
+        // Write from Root at offset 28 (Level 2 offset 4)
+        root.addOffset(28).writeInt(0x12344321);
+        assertEquals(0x12344321, sliceL2.addOffset(4).readInt(), "Level 2 reflects root write at offset 4");
+        assertEquals(0x12344321, sliceL1.addOffset(12).readInt(), "Level 1 reflects root write at offset 12");
+
+        // Bounds isolation: Level 2 cannot read past offset 16 (root offset 40)
+        boolean caughtL2Overflow = false;
+        try {
+            sliceL2.addOffset(16).readByte();
+        } catch (MemoryAccessException e) {
+            caughtL2Overflow = true;
+        }
+        assertTrue(caughtL2Overflow, "Reading at offset 16 of 16-byte Level 2 slice must throw MemoryAccessException");
+
+        allocator.free(root);
     }
 
     private static void testPrimitives(MemoryAllocator allocator) {
@@ -230,6 +274,44 @@ public class TestRuntime {
         assertTrue(realigned.isAligned(32), "realigned pointer should be 32-aligned");
 
         allocator.free(block);
+    }
+
+    /**
+     * Validates that MemoryAllocator accurately maintains active allocation counts
+     * and total allocated byte metrics across interleaved allocations, reallocations,
+     * and deallocations.
+     */
+    private static void testMemoryAllocatorBlockTrackingIntegrity() {
+        MemoryAllocator tracker = new MemoryAllocator();
+        assertEquals(0L, tracker.getActiveAllocationCount(), "Initial active allocations");
+        assertEquals(0L, tracker.getTotalAllocatedBytes(), "Initial total bytes");
+
+        ManagedPointer<?> p1 = tracker.malloc(100);
+        ManagedPointer<?> p2 = tracker.malloc(200);
+        ManagedPointer<?> p3 = tracker.malloc(300);
+
+        assertEquals(3L, tracker.getActiveAllocationCount(), "Active allocations after 3 mallocs");
+        assertEquals(600L, tracker.getTotalAllocatedBytes(), "Total bytes after 3 mallocs");
+
+        // Reallocate p2 from 200 to 500 (+300 bytes)
+        p2 = tracker.realloc(p2, 500);
+        assertEquals(3L, tracker.getActiveAllocationCount(), "Active allocations unchanged after realloc");
+        assertEquals(900L, tracker.getTotalAllocatedBytes(), "Total bytes after expanding p2 to 500");
+
+        // Free p1 (100 bytes freed)
+        tracker.free(p1);
+        assertEquals(2L, tracker.getActiveAllocationCount(), "Active allocations after freeing p1");
+        assertEquals(800L, tracker.getTotalAllocatedBytes(), "Total bytes after freeing p1");
+
+        // Free p2 (500 bytes freed)
+        tracker.free(p2);
+        assertEquals(1L, tracker.getActiveAllocationCount(), "Active allocations after freeing p2");
+        assertEquals(300L, tracker.getTotalAllocatedBytes(), "Total bytes after freeing p2");
+
+        // Free p3 (300 bytes freed)
+        tracker.free(p3);
+        assertEquals(0L, tracker.getActiveAllocationCount(), "Active allocations after freeing all");
+        assertEquals(0L, tracker.getTotalAllocatedBytes(), "Total bytes after freeing all");
     }
 
     private static void testMemoryAllocatorOperations(MemoryAllocator allocator) {
