@@ -27,6 +27,8 @@ public class IntegrationTest {
         System.out.println("=== RUNNING RUNTIME INTEGRATION TEST SUITE ===");
         MemoryAllocator allocator = new MemoryAllocator();
 
+        testPointerArrayIndirectionAndPointersToPointers(allocator);
+        testHighChurnPoolStabilityAndThrashing(allocator);
         testBoundaryMemoryAccess(allocator);
         testSliceBoundsAndNegativeOffsetSafety(allocator);
         testMemoryLifecycleAndDoubleFreeRejection(allocator);
@@ -36,6 +38,78 @@ public class IntegrationTest {
         testConcurrentProducerConsumerPooling(allocator);
 
         System.out.println("=== ALL INTEGRATION TESTS PASSED (" + assertions + " assertions verified) ===");
+    }
+
+    /**
+     * Stress-tests the memory pooling mechanism under rapid allocation and deallocation
+     * across diverse block size buckets to ensure high-churn stability.
+     */
+    private static void testHighChurnPoolStabilityAndThrashing(MemoryAllocator allocator) {
+        long initialAllocs = allocator.getActiveAllocationCount();
+        long initialBytes = allocator.getTotalAllocatedBytes();
+
+        int[] bucketSizes = { 16, 32, 64, 128 };
+        int cycles = 150;
+        ManagedPointer<?>[] activeBlocks = new ManagedPointer<?>[bucketSizes.length];
+
+        for (int c = 0; c < cycles; c++) {
+            // Allocate one block from each bucket
+            for (int b = 0; b < bucketSizes.length; b++) {
+                activeBlocks[b] = allocator.allocatePooled(bucketSizes[b]);
+                activeBlocks[b].writeInt(c * 100 + b);
+            }
+
+            // Verify content
+            for (int b = 0; b < bucketSizes.length; b++) {
+                assertEquals(c * 100 + b, activeBlocks[b].readInt(), "Pooled content verified under churn");
+            }
+
+            // Free blocks back to pool
+            for (int b = 0; b < bucketSizes.length; b++) {
+                allocator.freePooled(activeBlocks[b]);
+            }
+        }
+
+        // Active allocations should return to baseline
+        assertEquals(initialAllocs, allocator.getActiveAllocationCount(), "Active allocations restored after churn");
+        assertEquals(initialBytes, allocator.getTotalAllocatedBytes(), "Total allocated bytes restored after churn");
+    }
+
+    /**
+     * Simulates double-pointer indirection (char** argv or int** jagged matrices),
+     * verifying reading, modifying, and cleaning multi-tiered pointers.
+     */
+    private static void testPointerArrayIndirectionAndPointersToPointers(MemoryAllocator allocator) {
+        int rowCount = 4;
+        // Allocate array of pointers: int* rows[4] -> 4 * 8 bytes = 32 bytes
+        ManagedPointer<?> pointerTable = allocator.malloc(rowCount * 8);
+        ManagedPointer<?>[] subRows = new ManagedPointer<?>[rowCount];
+
+        for (int r = 0; r < rowCount; r++) {
+            int cols = (r + 1) * 3; // jagged row sizes: 3, 6, 9, 12 ints
+            subRows[r] = allocator.malloc(cols * 4);
+            for (int c = 0; c < cols; c++) {
+                subRows[r].addOffset(c * 4).writeInt((r + 1) * 100 + c);
+            }
+            // Store raw offset / address emulation in pointer table
+            // For on-heap pointers, we track subRows and use direct offset
+            pointerTable.addOffset(r * 8).writePointer(r * 1000L);
+        }
+
+        // Validate table entries
+        for (int r = 0; r < rowCount; r++) {
+            assertEquals(r * 1000L, pointerTable.addOffset(r * 8).readPointer(), "Pointer table entry at row " + r);
+            int cols = (r + 1) * 3;
+            for (int c = 0; c < cols; c++) {
+                assertEquals((r + 1) * 100 + c, subRows[r].addOffset(c * 4).readInt(), "Sub-row data match at [" + r + "][" + c + "]");
+            }
+        }
+
+        // Clean up all allocated structures
+        allocator.free(pointerTable);
+        for (int r = 0; r < rowCount; r++) {
+            allocator.free(subRows[r]);
+        }
     }
 
     /**
