@@ -34,6 +34,7 @@ public class TestRuntime {
         testByteBufferAndArrayConversion(allocator);
         testMemoryPoolRecycling(allocator);
         testEdgeConditionsAndBoundaryLimits(allocator);
+        testPointerCrossBlockAndStringExceptions(allocator);
         testCppObjectAndVTable(allocator);
         testOffHeapDirectMemory(allocator);
         testMultidimensionalArrayEmulation(allocator);
@@ -387,6 +388,60 @@ public class TestRuntime {
 
         allocator.free(block);
         allocator.free(zeroPtr);
+    }
+
+    private static void testPointerCrossBlockAndStringExceptions(MemoryAllocator allocator) {
+        ManagedPointer<?> block1 = allocator.malloc(16);
+        ManagedPointer<?> block2 = allocator.malloc(16);
+
+        // Cross-block diff check
+        boolean caught = false;
+        try {
+            block1.diff(block2);
+        } catch (IllegalArgumentException e) {
+            caught = true;
+        }
+        assertTrue(caught, "diff between different memory blocks should throw IllegalArgumentException");
+
+        // Cross-block compareTo check
+        caught = false;
+        try {
+            ((ManagedPointer) block1).compareTo(block2);
+        } catch (IllegalArgumentException e) {
+            caught = true;
+        }
+        assertTrue(caught, "compareTo between different memory blocks should throw IllegalArgumentException");
+
+        // Unterminated C-string check
+        block1.fillMemory((byte) 'X', 16); // no null terminator
+        caught = false;
+        try {
+            block1.readCString();
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "readCString without null terminator should throw MemoryAccessException");
+
+        // Invalid aligned_alloc alignment
+        caught = false;
+        try {
+            allocator.aligned_alloc(15, 32); // 15 is not a power of two
+        } catch (IllegalArgumentException e) {
+            caught = true;
+        }
+        assertTrue(caught, "aligned_alloc with non-power-of-two alignment should throw IllegalArgumentException");
+
+        // copyMemory out of bounds check
+        caught = false;
+        try {
+            MemoryAllocator.copyMemory(block1, block2, 32); // 32 > 16 bounds
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "copyMemory exceeding bounds should throw MemoryAccessException");
+
+        allocator.free(block1);
+        allocator.free(block2);
     }
 
     private static void testCppObjectAndVTable(MemoryAllocator allocator) {
