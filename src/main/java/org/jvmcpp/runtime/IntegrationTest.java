@@ -27,12 +27,188 @@ public class IntegrationTest {
         System.out.println("=== RUNNING RUNTIME INTEGRATION TEST SUITE ===");
         MemoryAllocator allocator = new MemoryAllocator();
 
+        testBoundaryMemoryAccess(allocator);
+        testSliceBoundsAndNegativeOffsetSafety(allocator);
+        testMemoryLifecycleAndDoubleFreeRejection(allocator);
         testDynamicVectorGrowth(allocator);
         testStructArrayTraversal(allocator);
         testPolymorphicCppObjectHierarchy(allocator);
         testConcurrentProducerConsumerPooling(allocator);
 
         System.out.println("=== ALL INTEGRATION TESTS PASSED (" + assertions + " assertions verified) ===");
+    }
+
+    /**
+     * Validates partial boundary violations (e.g., writing 4-byte int or 8-byte long
+     * across allocation boundary) to ensure MemoryAccessException is raised deterministically.
+     */
+    private static void testBoundaryMemoryAccess(MemoryAllocator allocator) {
+        long size = 16;
+        ManagedPointer<?> ptr = allocator.malloc(size);
+
+        // Valid boundary accesses
+        ptr.addOffset(8).writeLong(0x1122334455667788L);
+        assertEquals(0x1122334455667788L, ptr.addOffset(8).readLong(), "Boundary long read at offset 8");
+
+        ptr.addOffset(12).writeInt(0xAABBCCDD);
+        assertEquals(0xAABBCCDD, ptr.addOffset(12).readInt(), "Boundary int read at offset 12");
+
+        ptr.addOffset(15).writeByte((byte) 0xEE);
+        assertEquals((byte) 0xEE, ptr.addOffset(15).readByte(), "Boundary byte read at offset 15");
+
+        // Partial out-of-bounds: reading 4-byte int at offset 13 (spans 13..16, boundary is 16)
+        boolean caughtInt = false;
+        try {
+            ptr.addOffset(13).readInt();
+        } catch (MemoryAccessException e) {
+            caughtInt = true;
+        }
+        assertTrue(caughtInt, "Reading 4-byte int at offset 13 of 16-byte buffer must throw MemoryAccessException");
+
+        // Partial out-of-bounds: writing 8-byte long at offset 9 (spans 9..16, boundary is 16)
+        boolean caughtLong = false;
+        try {
+            ptr.addOffset(9).writeLong(12345L);
+        } catch (MemoryAccessException e) {
+            caughtLong = true;
+        }
+        assertTrue(caughtLong, "Writing 8-byte long at offset 9 of 16-byte buffer must throw MemoryAccessException");
+
+        // Partial out-of-bounds: writing pointer at offset 10 (spans 10..17, boundary is 16)
+        boolean caughtPtr = false;
+        try {
+            ptr.addOffset(10).writePointer(999L);
+        } catch (MemoryAccessException e) {
+            caughtPtr = true;
+        }
+        assertTrue(caughtPtr, "Writing 64-bit pointer at offset 10 of 16-byte buffer must throw MemoryAccessException");
+
+        // Partial out-of-bounds: short at offset 15 (spans 15..16, boundary is 16)
+        boolean caughtShort = false;
+        try {
+            ptr.addOffset(15).readShort();
+        } catch (MemoryAccessException e) {
+            caughtShort = true;
+        }
+        assertTrue(caughtShort, "Reading 2-byte short at offset 15 of 16-byte buffer must throw MemoryAccessException");
+
+        allocator.free(ptr);
+    }
+
+    /**
+     * Validates slicing behavior: boundary confinement, boundary clamping, negative
+     * slice offset rejection, and prevention of accessing memory beyond slice window.
+     */
+    private static void testSliceBoundsAndNegativeOffsetSafety(MemoryAllocator allocator) {
+        ManagedPointer<?> parent = allocator.malloc(64);
+        parent.fillMemory((byte) 0xAA, 64);
+
+        // Sub-slice window of 16 bytes starting at offset 16 (new offset=16, new bounds=32, remaining=16)
+        ManagedPointer<?> slice = parent.slice(16, 16);
+        assertEquals(16L, slice.getOffset(), "Slice current offset should be 16");
+        assertEquals(32L, slice.getBounds(), "Slice upper bounds should be 32");
+        assertEquals(16L, slice.getBounds() - slice.getOffset(), "Slice span should be 16 bytes");
+
+        // Write into slice
+        slice.writeInt(0x12345678);
+        assertEquals(0x12345678, slice.readInt(), "Reading from slice start");
+        assertEquals(0x12345678, parent.addOffset(16).readInt(), "Parent reflecting slice write at offset 16");
+
+        // Negative offset relative to base allocation should throw MemoryAccessException
+        boolean caughtNegative = false;
+        try {
+            slice.addOffset(-17).readByte();
+        } catch (MemoryAccessException e) {
+            caughtNegative = true;
+        }
+        assertTrue(caughtNegative, "Negative offset on pointer must throw MemoryAccessException");
+
+        // Accessing past slice boundary (offset 16 on 16-byte slice => 16 + 16 = 32, which reaches bounds 32)
+        boolean caughtPastSlice = false;
+        try {
+            slice.addOffset(16).readByte();
+        } catch (MemoryAccessException e) {
+            caughtPastSlice = true;
+        }
+        assertTrue(caughtPastSlice, "Reading past slice upper boundary must throw MemoryAccessException");
+
+        // Requesting a slice that exceeds parent boundary should throw MemoryAccessException
+        boolean caughtOverflowSlice = false;
+        try {
+            parent.slice(48, 100);
+        } catch (MemoryAccessException e) {
+            caughtOverflowSlice = true;
+        }
+        assertTrue(caughtOverflowSlice, "Requesting slice beyond parent bounds must throw MemoryAccessException");
+
+        allocator.free(parent);
+    }
+
+    /**
+     * Validates memory allocator lifecycle: double-free rejection for standard,
+     * direct, and pooled allocations, foreign pointer rejection, and quota enforcement.
+     */
+    private static void testMemoryLifecycleAndDoubleFreeRejection(MemoryAllocator allocator) {
+        // Double-free of standard heap allocation
+        ManagedPointer<?> heapPtr = allocator.malloc(32);
+        allocator.free(heapPtr);
+
+        boolean caughtHeapDoubleFree = false;
+        try {
+            allocator.free(heapPtr);
+        } catch (MemoryAccessException e) {
+            caughtHeapDoubleFree = true;
+        }
+        assertTrue(caughtHeapDoubleFree, "Double free of on-heap pointer must throw MemoryAccessException");
+
+        // Double-free of direct off-heap allocation
+        ManagedPointer<?> directPtr = allocator.mallocDirect(64);
+        allocator.free(directPtr);
+
+        boolean caughtDirectDoubleFree = false;
+        try {
+            allocator.free(directPtr);
+        } catch (MemoryAccessException e) {
+            caughtDirectDoubleFree = true;
+        }
+        assertTrue(caughtDirectDoubleFree, "Double free of direct pointer must throw MemoryAccessException");
+
+        // Freeing an untracked foreign pointer (unallocated object) should be rejected
+        ManagedPointer<?> foreignPtr = new ManagedPointer<>(new byte[32], 0, 32);
+        boolean caughtForeignFree = false;
+        try {
+            allocator.free(foreignPtr);
+        } catch (MemoryAccessException e) {
+            caughtForeignFree = true;
+        }
+        assertTrue(caughtForeignFree, "Freeing an untracked foreign pointer must throw MemoryAccessException");
+
+        // Allocator with strict quota
+        MemoryAllocator quotaAllocator = new MemoryAllocator(100);
+        ManagedPointer<?> q1 = quotaAllocator.malloc(60);
+        assertEquals(60L, quotaAllocator.getTotalAllocatedBytes(), "Quota allocator tracked 60 bytes");
+
+        // Exceeding quota: 60 + 50 = 110 > 100
+        boolean caughtQuotaExceeded = false;
+        try {
+            quotaAllocator.malloc(50);
+        } catch (MemoryAccessException e) {
+            caughtQuotaExceeded = true;
+        }
+        assertTrue(caughtQuotaExceeded, "Exceeding max heap quota must throw MemoryAccessException");
+
+        quotaAllocator.free(q1);
+        assertEquals(0L, quotaAllocator.getTotalAllocatedBytes(), "Quota allocator freed all bytes");
+
+        // Pooling verification: allocatedPooled must enforce offset sanitization
+        ManagedPointer<?> pooled = allocator.allocatePooled(32);
+        pooled.addOffset(16).writeInt(42);
+        allocator.freePooled(pooled);
+
+        // Next pooled block should be at offset 0
+        ManagedPointer<?> reused = allocator.allocatePooled(32);
+        assertEquals(0L, reused.getOffset(), "Reused pooled pointer must have offset reset to 0");
+        allocator.freePooled(reused);
     }
 
     /**

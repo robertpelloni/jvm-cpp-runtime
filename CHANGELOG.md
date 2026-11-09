@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - Build and execution scripts: `test.sh` and `test.bat`.
 - Project documentation governance: `VERSION.md`, `ROADMAP.md`, `TODO.md`, `VISION.md`, `MEMORY.md`, `DEPLOY.md`, `IDEAS.md`, `CHANGELOG.md`.
 - Expanded test assertions in `TestRuntime` covering all new primitives and memory operations.
+- Expanded integration test suite (`IntegrationTest`): partial boundary accesses, slice upper boundary and negative offset protection, double-free rejection across heap and direct off-heap memory, quota limits, and pooling reuse sanitization.
 
 ## [0.1.0] - 2026-06-25
 ### Added

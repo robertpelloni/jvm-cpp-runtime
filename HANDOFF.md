@@ -49,7 +49,7 @@
 
 ## Test & Verification Status
 - **Unit Suite (`TestRuntime`)**: 176 assertions passing across 12 modular test suites.
-- **Integration Suite (`IntegrationTest`)**: 898 assertions passing (vector expansion, contiguous struct arrays, polymorphic dispatch, and concurrent pooling).
+- **Integration Suite (`IntegrationTest`)**: 920 assertions passing (boundary memory checks, slice upper/negative bounds protection, double-free rejection, quota enforcement, vector expansion, contiguous struct arrays, polymorphic dispatch, and concurrent pooling).
 - **C++ Object Suite (`TestCppObject`)**: 14 assertions passing (single/multiple inheritance, thunks, virtual destructors, pure virtuals).
 - **CLI Suite (`TestCLI`)**: 29 assertions passing (help, version, info, bench, test runners, invalid options).
 - **FFM Suite (`TestFFM`)**: Scoped allocation, alignment, and `toManagedPointer` bridge tests passing.
