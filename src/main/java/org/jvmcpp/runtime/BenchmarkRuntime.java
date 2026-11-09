@@ -18,7 +18,80 @@ public class BenchmarkRuntime {
         // 3. String & Memcpy Performance
         benchMemoryOps(allocator);
 
+        // 4. C++ Virtual Method Dispatch Performance
+        benchVirtualDispatch(allocator);
+
+        // 5. Standard C Library Routines Performance
+        benchStdLibOps(allocator);
+
         System.out.println("=== BENCHMARK COMPLETE ===");
+    }
+
+    private static void benchVirtualDispatch(MemoryAllocator allocator) {
+        VTable vt = new VTable("BenchDerived");
+        vt.registerMethod((thisPtr, args) -> null); // slot 0: dtor
+        int computeSlot = vt.registerMethod((thisPtr, args) -> {
+            int val = thisPtr.addOffset(CppObject.MEMBERS_OFFSET).readInt();
+            return val * 2 + 1;
+        });
+
+        CppObject obj = new CppObject(allocator, vt, 4);
+        obj.getMembersPointer().writeInt(10);
+
+        // Warmup
+        for (int i = 0; i < WARMUP_ITERS; i++) {
+            obj.invokeVirtual(computeSlot);
+        }
+
+        long start = System.nanoTime();
+        for (int i = 0; i < BENCHMARK_ITERS; i++) {
+            obj.invokeVirtual(computeSlot);
+        }
+        long duration = System.nanoTime() - start;
+        double opsPerSec = (double) BENCHMARK_ITERS / (duration / 1_000_000_000.0);
+        System.out.printf("[Benchmark] Virtual method dispatch ops/sec: %,.0f (avg: %.2f ns/call)%n",
+                opsPerSec, (double) duration / BENCHMARK_ITERS);
+
+        obj.destroy(allocator);
+    }
+
+    private static void benchStdLibOps(MemoryAllocator allocator) {
+        // String formatting benchmark
+        ManagedPointer<?> buffer = allocator.malloc(128);
+        String fmt = "Item #%d: value=%.2f, status=%s";
+
+        for (int i = 0; i < WARMUP_ITERS; i++) {
+            StdLib.sprintf(buffer, fmt, i, 42.5, "OK");
+        }
+
+        long startSprintf = System.nanoTime();
+        for (int i = 0; i < BENCHMARK_ITERS; i++) {
+            StdLib.sprintf(buffer, fmt, i, 42.5, "OK");
+        }
+        long durationSprintf = System.nanoTime() - startSprintf;
+        double sprintfOpsSec = (double) BENCHMARK_ITERS / (durationSprintf / 1_000_000_000.0);
+        System.out.printf("[Benchmark] StdLib.sprintf ops/sec:           %,.0f (avg: %.2f ns/call)%n",
+                sprintfOpsSec, (double) durationSprintf / BENCHMARK_ITERS);
+
+        allocator.free(buffer);
+
+        // In-place qsort benchmark (100 elements)
+        int arrayLen = 100;
+        int sortIterations = 2_000;
+        ManagedPointer<?> sortArray = allocator.malloc(arrayLen * 4);
+
+        long startSort = System.nanoTime();
+        for (int it = 0; it < sortIterations; it++) {
+            for (int k = 0; k < arrayLen; k++) {
+                sortArray.addOffset(k * 4).writeInt((arrayLen - k) * 7);
+            }
+            StdLib.qsort(sortArray, arrayLen, 4, (p1, p2) -> Integer.compare(p1.readInt(), p2.readInt()));
+        }
+        long durationSort = System.nanoTime() - startSort;
+        System.out.printf("[Benchmark] StdLib.qsort (100 elements) ops/sec: %,.0f%n",
+                (double) sortIterations / (durationSort / 1_000_000_000.0));
+
+        allocator.free(sortArray);
     }
 
     private static void benchPrimitiveAccess(MemoryAllocator allocator) {
