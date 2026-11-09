@@ -223,7 +223,7 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
         if (other == null) {
             throw new IllegalArgumentException("Cannot calculate pointer diff with null pointer");
         }
-        if (this.base != other.base) {
+        if (this.base != other.base || (this.base == null && this.rawAddress != other.rawAddress)) {
             throw new IllegalArgumentException("Cannot calculate diff between pointers to different memory blocks");
         }
         return this.offset - other.offset;
@@ -247,7 +247,7 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
         if (other == null) {
             throw new NullPointerException("Cannot compare to null ManagedPointer");
         }
-        if (this.base != other.base) {
+        if (this.base != other.base || (this.base == null && this.rawAddress != other.rawAddress)) {
             throw new IllegalArgumentException("Cannot compare pointers from different memory blocks");
         }
         return Long.compare(this.offset, other.offset);
@@ -258,12 +258,14 @@ public final class ManagedPointer<T> implements Comparable<ManagedPointer<T>> {
         if (this == obj) return true;
         if (!(obj instanceof ManagedPointer<?>)) return false;
         ManagedPointer<?> other = (ManagedPointer<?>) obj;
-        return this.base == other.base && this.offset == other.offset && this.bounds == other.bounds;
+        if (this.base != other.base) return false;
+        if (this.base == null && this.rawAddress != other.rawAddress) return false;
+        return this.offset == other.offset && this.bounds == other.bounds;
     }
 
     @Override
     public int hashCode() {
-        int result = (base != null ? System.identityHashCode(base) : 0);
+        int result = base != null ? System.identityHashCode(base) : Long.hashCode(rawAddress);
         result = 31 * result + Long.hashCode(offset);
         result = 31 * result + Long.hashCode(bounds);
         return result;
