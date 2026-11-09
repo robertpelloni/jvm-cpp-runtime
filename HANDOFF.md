@@ -48,7 +48,7 @@
    - Build & test automation: `build.sh`, `build.bat`, `test.sh`, `test.bat`.
 
 ## Test & Verification Status
-- **Unit Suite (`TestRuntime`)**: 176 assertions passing across 12 modular test suites.
+- **Unit Suite (`TestRuntime`)**: 228 assertions passing across 17 modular test suites (including pointer arithmetic chains and direct memory alignment).
 - **Integration Suite (`IntegrationTest`)**: 920 assertions passing (boundary memory checks, slice upper/negative bounds protection, double-free rejection, quota enforcement, vector expansion, contiguous struct arrays, polymorphic dispatch, and concurrent pooling).
 - **C++ Object Suite (`TestCppObject`)**: 14 assertions passing (single/multiple inheritance, thunks, virtual destructors, pure virtuals).
 - **CLI Suite (`TestCLI`)**: 29 assertions passing (help, version, info, bench, test runners, invalid options).

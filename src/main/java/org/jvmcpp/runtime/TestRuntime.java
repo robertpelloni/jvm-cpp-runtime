@@ -25,6 +25,7 @@ public class TestRuntime {
     public static void main(String[] args) {
         MemoryAllocator allocator = new MemoryAllocator();
 
+        testDynamicPointerArithmeticChain(allocator);
         testPrimitives(allocator);
         testBoundsAndExceptions(allocator);
         testPointerArithmeticAndAlignment(allocator);
@@ -37,11 +38,60 @@ public class TestRuntime {
         testPointerCrossBlockAndStringExceptions(allocator);
         testCppObjectAndVTable(allocator);
         testOffHeapDirectMemory(allocator);
+        testDirectMemoryAlignmentAndBounds(allocator);
         testMultidimensionalArrayEmulation(allocator);
         testPointerTypeCastSimulation(allocator);
         testConcurrencyStress(allocator);
 
         System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
+    }
+
+    /**
+     * Validates simulated pointer increment/decrement chains (e.g. while(*p++) operations),
+     * ensuring that sequential addOffset operations maintain correct pointer displacement,
+     * difference calculations, and trigger boundary violations at the exact endpoint.
+     */
+    private static void testDynamicPointerArithmeticChain(MemoryAllocator allocator) {
+        int elementCount = 8;
+        ManagedPointer<?> buffer = allocator.malloc(elementCount * 4);
+
+        // Simulate filling array via walking pointer: int* p = buffer; for(...) *p++ = val;
+        ManagedPointer<?> walker = buffer;
+        for (int i = 0; i < elementCount; i++) {
+            walker.writeInt(100 + i);
+            walker = walker.addOffset(4);
+        }
+
+        // Walker should now be exactly at buffer boundary (offset 32 on 32-byte buffer)
+        assertEquals(32L, walker.getOffset(), "Walker offset after chain should be 32");
+        assertEquals(32L, walker.diff(buffer), "Walker diff from start should be 32 bytes");
+
+        // Attempting to write at walker should throw MemoryAccessException (at boundary)
+        boolean caughtOverflow = false;
+        try {
+            walker.writeInt(999);
+        } catch (MemoryAccessException e) {
+            caughtOverflow = true;
+        }
+        assertTrue(caughtOverflow, "Writing at past-the-end boundary must throw MemoryAccessException");
+
+        // Simulate reading backward: while (walker > buffer) { walker -= 4; read(*walker); }
+        for (int i = elementCount - 1; i >= 0; i--) {
+            walker = walker.addOffset(-4);
+            assertEquals(100 + i, walker.readInt(), "Backward walked value match at index " + i);
+        }
+        assertEquals(0L, walker.getOffset(), "Walker returned to base offset 0");
+
+        // Decrementing past base offset 0 must throw MemoryAccessException
+        boolean caughtUnderflow = false;
+        try {
+            walker.addOffset(-4).readInt();
+        } catch (MemoryAccessException e) {
+            caughtUnderflow = true;
+        }
+        assertTrue(caughtUnderflow, "Decrementing past base offset 0 must throw MemoryAccessException");
+
+        allocator.free(buffer);
     }
 
     private static void testPrimitives(MemoryAllocator allocator) {
@@ -468,6 +518,42 @@ public class TestRuntime {
         assertEquals(50, result, "Virtual method area() dispatch mismatch");
 
         rectObj.destroy(allocator);
+    }
+
+    /**
+     * Validates direct off-heap native memory alignment checks, byte filling,
+     * slicing, and bounds-checking exceptions.
+     */
+    private static void testDirectMemoryAlignmentAndBounds(MemoryAllocator allocator) {
+        ManagedPointer<?> direct = allocator.mallocDirect(64);
+        assertTrue(direct.isDirect(), "Direct pointer should report isDirect() == true");
+        assertTrue(direct.getRawAddress() != 0, "Direct pointer raw address should be non-zero");
+
+        // Direct memory memset
+        direct.fillMemory((byte) 0x7F, 32);
+        for (int i = 0; i < 32; i++) {
+            assertEquals((byte) 0x7F, direct.addOffset(i).readByte(), "Direct memset byte at " + i);
+        }
+
+        // Direct memory slicing
+        ManagedPointer<?> slice = direct.slice(16, 32);
+        assertTrue(slice.isDirect(), "Sliced direct pointer should be direct");
+        assertEquals(16L, slice.getOffset(), "Sliced direct pointer offset");
+        assertEquals(48L, slice.getBounds(), "Sliced direct pointer bounds");
+
+        slice.writeLong(0x123456789ABCDEF0L);
+        assertEquals(0x123456789ABCDEF0L, direct.addOffset(16).readLong(), "Parent direct memory reflects slice write");
+
+        // Direct memory bounds checking: reading past slice boundary (offset 48 on direct block)
+        boolean caughtSliceOverflow = false;
+        try {
+            slice.addOffset(32).readByte(); // 16 + 32 = 48, which reaches upper bounds 48
+        } catch (MemoryAccessException e) {
+            caughtSliceOverflow = true;
+        }
+        assertTrue(caughtSliceOverflow, "Reading past direct slice boundary must throw MemoryAccessException");
+
+        allocator.free(direct);
     }
 
     private static void testOffHeapDirectMemory(MemoryAllocator allocator) {
