@@ -26,10 +26,12 @@ public class TestRuntime {
         MemoryAllocator allocator = new MemoryAllocator();
 
         testDynamicPointerArithmeticChain(allocator);
+        testPrimitiveTypePunningAndEndianness(allocator);
         testPrimitives(allocator);
         testBoundsAndExceptions(allocator);
         testPointerArithmeticAndAlignment(allocator);
         testMemoryAllocatorOperations(allocator);
+        testAllocatorQuotaExhaustionRecovery();
         testStdLibStringShims(allocator);
         testStructLayout(allocator);
         testByteBufferAndArrayConversion(allocator);
@@ -92,6 +94,33 @@ public class TestRuntime {
         assertTrue(caughtUnderflow, "Decrementing past base offset 0 must throw MemoryAccessException");
 
         allocator.free(buffer);
+    }
+
+    /**
+     * Validates type-punning between floating point primitives and bitwise integer representations
+     * (e.g. float vs uint32_t, double vs uint64_t) to simulate low-level fast inverse square root
+     * or IEEE 754 inspection in compiled C++ code.
+     */
+    private static void testPrimitiveTypePunningAndEndianness(MemoryAllocator allocator) {
+        ManagedPointer<?> mem = allocator.malloc(16);
+
+        // Float / Int bit punning
+        float testFloat = -13.375f;
+        int expectedIntBits = Float.floatToIntBits(testFloat);
+        mem.writeFloat(testFloat);
+        assertEquals(expectedIntBits, mem.readInt(), "Float written as float should read expected bit pattern as int");
+
+        // Double / Long bit punning
+        double testDouble = 1.0 / 3.0;
+        long expectedLongBits = Double.doubleToLongBits(testDouble);
+        mem.writeDouble(testDouble);
+        assertEquals(expectedLongBits, mem.readLong(), "Double written as double should read expected bit pattern as long");
+
+        // Overwrite as long and read back as double
+        mem.writeLong(expectedLongBits);
+        assertEquals(testDouble, mem.readDouble(), "Long written as bits should read back exact double value");
+
+        allocator.free(mem);
     }
 
     private static void testPrimitives(MemoryAllocator allocator) {
@@ -257,6 +286,58 @@ public class TestRuntime {
         }
         assertTrue(caught, "Should throw on heap quota exceeded");
         bounded.free(p);
+    }
+
+    /**
+     * Validates quota boundary tracking, memory exhaustion, partial deallocation recovery,
+     * and exact boundary allocations up to maxHeapBytes limit.
+     */
+    private static void testAllocatorQuotaExhaustionRecovery() {
+        long quotaLimit = 128;
+        MemoryAllocator quotaAlloc = new MemoryAllocator(quotaLimit);
+        assertEquals(0L, quotaAlloc.getTotalAllocatedBytes(), "Initial allocated bytes should be 0");
+        assertEquals(0L, quotaAlloc.getActiveAllocationCount(), "Initial active count should be 0");
+
+        // Allocate block A of 64 bytes
+        ManagedPointer<?> blockA = quotaAlloc.malloc(64);
+        assertEquals(64L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes after block A");
+        assertEquals(1L, quotaAlloc.getActiveAllocationCount(), "Active allocations after block A");
+
+        // Allocate block B of 64 bytes (total = 128 == quotaLimit)
+        ManagedPointer<?> blockB = quotaAlloc.malloc(64);
+        assertEquals(128L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes at full quota");
+        assertEquals(2L, quotaAlloc.getActiveAllocationCount(), "Active count at full quota");
+
+        // Attempting to allocate even 1 additional byte must fail
+        boolean quotaFailed = false;
+        try {
+            quotaAlloc.malloc(1);
+        } catch (MemoryAccessException e) {
+            quotaFailed = true;
+        }
+        assertTrue(quotaFailed, "Allocating beyond quota must throw MemoryAccessException");
+        assertEquals(128L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes should remain unchanged after failed malloc");
+
+        // Free block A (64 bytes freed)
+        quotaAlloc.free(blockA);
+        assertEquals(64L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes after freeing block A");
+        assertEquals(1L, quotaAlloc.getActiveAllocationCount(), "Active count after freeing block A");
+
+        // Reallocate block C of 32 bytes (64 + 32 = 96 <= 128)
+        ManagedPointer<?> blockC = quotaAlloc.malloc(32);
+        assertEquals(96L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes after block C");
+
+        // Allocate block D of 32 bytes (96 + 32 = 128 == 128)
+        ManagedPointer<?> blockD = quotaAlloc.malloc(32);
+        assertEquals(128L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes back at quota limit");
+
+        // Clean up remaining blocks
+        quotaAlloc.free(blockB);
+        quotaAlloc.free(blockC);
+        quotaAlloc.free(blockD);
+
+        assertEquals(0L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes should be 0 after full cleanup");
+        assertEquals(0L, quotaAlloc.getActiveAllocationCount(), "Active count should be 0 after full cleanup");
     }
 
     private static void testStdLibStringShims(MemoryAllocator allocator) {
