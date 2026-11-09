@@ -36,7 +36,9 @@ public class TestRuntime {
         testStructLayout(allocator);
         testByteBufferAndArrayConversion(allocator);
         testMemoryPoolRecycling(allocator);
+        testExactAllocatedBlockBoundaryClamping(allocator);
         testEdgeConditionsAndBoundaryLimits(allocator);
+        testCrossBlockDirectAndHeapPointerIsolation(allocator);
         testPointerCrossBlockAndStringExceptions(allocator);
         testCppObjectAndVTable(allocator);
         testOffHeapDirectMemory(allocator);
@@ -474,6 +476,60 @@ public class TestRuntime {
         allocator.free(ptr);
     }
 
+    /**
+     * Validates exact allocation boundary clamping across zero-byte, single-byte,
+     * and odd-sized memory blocks with offset displacement and sub-slicing.
+     */
+    private static void testExactAllocatedBlockBoundaryClamping(MemoryAllocator allocator) {
+        // Single-byte allocation edge case
+        ManagedPointer<?> singleByte = allocator.malloc(1);
+        assertEquals(1L, singleByte.getBounds(), "1-byte allocation bounds");
+        singleByte.writeByte((byte) 0x5A);
+        assertEquals((byte) 0x5A, singleByte.readByte(), "1-byte allocation read");
+
+        // Attempting to read 2 bytes from a 1-byte allocation
+        boolean caught2Byte = false;
+        try {
+            singleByte.readShort();
+        } catch (MemoryAccessException e) {
+            caught2Byte = true;
+        }
+        assertTrue(caught2Byte, "Reading short from 1-byte allocation must throw MemoryAccessException");
+
+        // Attempting to offset past end
+        boolean caughtOffsetPast = false;
+        try {
+            singleByte.addOffset(1).readByte();
+        } catch (MemoryAccessException e) {
+            caughtOffsetPast = true;
+        }
+        assertTrue(caughtOffsetPast, "Reading at offset 1 of 1-byte allocation must throw MemoryAccessException");
+
+        // Odd-sized allocation (7 bytes)
+        ManagedPointer<?> oddBlock = allocator.malloc(7);
+        assertEquals(7L, oddBlock.getBounds(), "7-byte allocation bounds");
+        oddBlock.fillMemory((byte) 0x11, 7);
+        for (int i = 0; i < 7; i++) {
+            assertEquals((byte) 0x11, oddBlock.addOffset(i).readByte(), "Odd block byte at " + i);
+        }
+
+        // 4-byte int read at offset 3 (3 + 4 = 7 <= 7, exactly fits)
+        oddBlock.addOffset(3).writeInt(0x12345678);
+        assertEquals(0x12345678, oddBlock.addOffset(3).readInt(), "Exact fit 4-byte int read at offset 3 of 7-byte block");
+
+        // 4-byte int read at offset 4 (4 + 4 = 8 > 7, overflows by 1 byte)
+        boolean caughtIntOverflow = false;
+        try {
+            oddBlock.addOffset(4).readInt();
+        } catch (MemoryAccessException e) {
+            caughtIntOverflow = true;
+        }
+        assertTrue(caughtIntOverflow, "4-byte int read at offset 4 of 7-byte block must throw MemoryAccessException");
+
+        allocator.free(singleByte);
+        allocator.free(oddBlock);
+    }
+
     private static void testEdgeConditionsAndBoundaryLimits(MemoryAllocator allocator) {
         ManagedPointer<?> block = allocator.malloc(8);
 
@@ -519,6 +575,50 @@ public class TestRuntime {
 
         allocator.free(block);
         allocator.free(zeroPtr);
+    }
+
+    /**
+     * Validates isolation between on-heap and off-heap direct pointers:
+     * verifying that diff, compareTo, and equality across heap vs direct blocks
+     * deterministically throw IllegalArgumentException or evaluate false.
+     */
+    private static void testCrossBlockDirectAndHeapPointerIsolation(MemoryAllocator allocator) {
+        ManagedPointer<?> heapPtr = allocator.malloc(32);
+        ManagedPointer<?> directPtr = allocator.mallocDirect(32);
+
+        // heap vs direct diff check
+        boolean caughtDiff = false;
+        try {
+            heapPtr.diff(directPtr);
+        } catch (IllegalArgumentException e) {
+            caughtDiff = true;
+        }
+        assertTrue(caughtDiff, "diff between on-heap and off-heap direct pointers must throw IllegalArgumentException");
+
+        // direct vs heap diff check
+        boolean caughtReverseDiff = false;
+        try {
+            directPtr.diff(heapPtr);
+        } catch (IllegalArgumentException e) {
+            caughtReverseDiff = true;
+        }
+        assertTrue(caughtReverseDiff, "diff between off-heap and on-heap pointers must throw IllegalArgumentException");
+
+        // compareTo between heap and direct
+        boolean caughtCompare = false;
+        try {
+            ((ManagedPointer) heapPtr).compareTo(directPtr);
+        } catch (IllegalArgumentException e) {
+            caughtCompare = true;
+        }
+        assertTrue(caughtCompare, "compareTo between on-heap and off-heap pointers must throw IllegalArgumentException");
+
+        // equals check
+        assertTrue(!heapPtr.equals(directPtr), "on-heap pointer must not equal off-heap pointer");
+        assertTrue(!directPtr.equals(heapPtr), "off-heap pointer must not equal on-heap pointer");
+
+        allocator.free(heapPtr);
+        allocator.free(directPtr);
     }
 
     private static void testPointerCrossBlockAndStringExceptions(MemoryAllocator allocator) {

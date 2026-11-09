@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - Unified CLI runner (`org.jvmcpp.runtime.cli.Main`, `run.sh`, `run.bat`) and CLI automated test harness (`TestCLI`).
 - Build and execution scripts: `test.sh` and `test.bat`.
 - Project documentation governance: `VERSION.md`, `ROADMAP.md`, `TODO.md`, `VISION.md`, `MEMORY.md`, `DEPLOY.md`, `IDEAS.md`, `CHANGELOG.md`.
-- Expanded test assertions in `TestRuntime` (245 assertions) covering chained pointer displacement, backward walking, boundary limits, off-heap direct native memory slicing, float/double bit-level type-punning, and exact allocator quota exhaustion and recovery.
+- Expanded test assertions in `TestRuntime` (264 assertions) covering exact boundary clamping on odd/single-byte blocks, cross-block isolation between on-heap and off-heap pointers, chained pointer displacement, backward walking, boundary limits, off-heap direct native memory slicing, float/double bit-level type-punning, and exact allocator quota exhaustion and recovery.
 - Expanded integration test suite (`IntegrationTest`, 1,555 assertions): pointer-to-pointer indirection and jagged matrix arrays, high-churn multi-bucket pool stability and thrashing verification, partial boundary accesses, slice upper boundary and negative offset protection, double-free rejection across heap and direct off-heap memory, quota limits, and pooling reuse sanitization.
 - Expanded benchmark suite (`BenchmarkRuntime`): added C++ virtual method dispatch throughput benchmarking (CppObject/VTable), sprintf formatting throughput, and in-place qsort execution performance.
 
