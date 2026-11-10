@@ -31,6 +31,7 @@
      - Subobject base pointer views (`asSubobject`) and this-pointer adjustment thunks (`getCompleteObjectPointer`).
      - Virtual destructor invocation convention at vtable slot 0 on `destroy()`.
      - Pure virtual slot verification.
+     - C++ Runtime Type Information (RTTI) and polymorphic casting (`isInstanceOf`, `dynamicCast`, `isSubclassOf`).
 
 4. **Standard C Shims (`StdLib`)**:
    - `<string.h>` operations: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `sprintf`.
@@ -50,7 +51,7 @@
 ## Test & Verification Status
 - **Unit Suite (`TestRuntime`)**: 324 assertions passing across 26 modular test suites (including overlapping memory copies/memmove, C-string boundary edge cases, peak watermark tracking, direct off-heap realloc, block size queries, arena freeAll resets, multi-level sub-slice mutation propagation, allocator block tracking metrics across malloc/realloc/free cycles, pointer arithmetic chains, direct memory alignment, IEEE 754 type-punning, odd/single-byte boundary clamping, cross-block heap/direct isolation, and quota exhaustion recovery).
 - **Integration Suite (`IntegrationTest`)**: 1,706 assertions passing (heterogeneous heap/direct copyMemory, cyclic dynamic vector resizing, pointer-to-pointer indirection, jagged matrices, high-churn pooling stability, boundary memory checks, slice upper/negative bounds protection, double-free rejection, quota enforcement, contiguous struct arrays, polymorphic dispatch, and concurrent pooling).
-- **C++ Object Suite (`TestCppObject`)**: 14 assertions passing (single/multiple inheritance, thunks, virtual destructors, pure virtuals).
+- **C++ Object Suite (`TestCppObject`)**: 20 assertions passing (single/multiple inheritance, thunks, virtual destructors, pure virtuals, RTTI isInstanceOf, dynamicCast upcasts and cross-casts).
 - **CLI Suite (`TestCLI`)**: 29 assertions passing (help, version, info, bench, test runners, invalid options).
 - **FFM Suite (`TestFFM`)**: Scoped allocation, alignment, and `toManagedPointer` bridge tests passing.
 - **Total Assertions**: 1,117+ assertions passing cleanly via `./run.sh --all` and `./test.sh`.

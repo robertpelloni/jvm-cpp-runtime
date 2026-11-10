@@ -62,6 +62,36 @@ public final class VTable {
         return parentVTable;
     }
 
+    /**
+     * Checks if this VTable belongs to a class that is equal to or derived from the specified parent VTable.
+     */
+    public boolean isSubclassOf(VTable target) {
+        if (target == null) return false;
+        VTable curr = this;
+        while (curr != null) {
+            if (curr.id == target.id || curr.className.equals(target.className)) {
+                return true;
+            }
+            curr = curr.parentVTable;
+        }
+        return false;
+    }
+
+    /**
+     * Checks if this VTable belongs to a class that is equal to or derived from the specified class name.
+     */
+    public boolean isSubclassOf(String targetClassName) {
+        if (targetClassName == null) return false;
+        VTable curr = this;
+        while (curr != null) {
+            if (curr.className.equals(targetClassName)) {
+                return true;
+            }
+            curr = curr.parentVTable;
+        }
+        return false;
+    }
+
     public synchronized int getMethodCount() {
         return methodTable.size();
     }

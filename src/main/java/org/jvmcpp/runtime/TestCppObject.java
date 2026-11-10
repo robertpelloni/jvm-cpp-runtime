@@ -34,8 +34,44 @@ public class TestCppObject {
         testVirtualDestructor(allocator);
         testMultipleInheritanceAndThunks(allocator);
         testPureVirtualFailure();
+        testRTTIAndDynamicCast(allocator);
 
         System.out.println("=== ALL CPP OBJECT TESTS PASSED (" + assertionsCount + " assertions verified) ===");
+    }
+
+    /**
+     * Validates runtime type information (RTTI) and polymorphic dynamic casting:
+     * class Animal { virtual ~Animal(); }
+     * class Dog : public Animal { ... }
+     * class Cat : public Animal { ... }
+     */
+    private static void testRTTIAndDynamicCast(MemoryAllocator allocator) {
+        VTable animalVt = new VTable("Animal");
+        animalVt.registerMethod((thisPtr, args) -> null); // slot 0: dtor
+
+        VTable dogVt = new VTable("Dog", animalVt);
+        VTable catVt = new VTable("Cat", animalVt);
+
+        CppObject dog = new CppObject(allocator, dogVt, 8);
+
+        // Positive RTTI instance queries
+        assertTrue(dog.isInstanceOf("Dog"), "Dog instance is Dog");
+        assertTrue(dog.isInstanceOf("Animal"), "Dog instance is Animal (derived)");
+        assertTrue(!dog.isInstanceOf("Cat"), "Dog instance is NOT Cat");
+
+        // Successful dynamic_cast to base class (upcast)
+        CppObject animalCast = dog.dynamicCast(animalVt);
+        assertTrue(animalCast != null, "dynamic_cast<Animal*>(dog) must succeed");
+
+        // Successful dynamic_cast to exact derived type
+        CppObject dogCast = dog.dynamicCast(dogVt);
+        assertTrue(dogCast != null, "dynamic_cast<Dog*>(dog) must succeed");
+
+        // Failed dynamic_cast to unrelated type in same hierarchy (returns null)
+        CppObject catCast = dog.dynamicCast(catVt);
+        assertTrue(catCast == null, "dynamic_cast<Cat*>(dog) must return null");
+
+        dog.destroy(allocator);
     }
 
     /**

@@ -84,6 +84,31 @@ public class CppObject {
     }
 
     /**
+     * Checks if this instance is of the specified type or a derived subtype (C++ RTTI / typeid emulation).
+     */
+    public boolean isInstanceOf(String className) {
+        if (className == null) return false;
+        long currentVTableId = memory.readPointer();
+        VTable currentVTable = VTable.getById(currentVTableId);
+        return currentVTable.isSubclassOf(className);
+    }
+
+    /**
+     * Performs a C++ dynamic_cast equivalent check.
+     * If this object's runtime vtable is derived from or matches targetVTable,
+     * returns this instance (or an adjusted subobject view). Otherwise returns null.
+     */
+    public CppObject dynamicCast(VTable targetVTable) {
+        if (targetVTable == null) return null;
+        long currentVTableId = memory.readPointer();
+        VTable currentVTable = VTable.getById(currentVTableId);
+        if (currentVTable.isSubclassOf(targetVTable)) {
+            return this;
+        }
+        return null;
+    }
+
+    /**
      * Obtains a subobject base pointer representation embedded at the specified offset
      * for multiple inheritance layouts, with an adjusted vptr and thunk adjustment.
      */
