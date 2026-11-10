@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 - Expanded test assertions in `TestRuntime` (324 assertions) covering overlapping sub-range memory copies (memmove simulation), C-string boundary edge cases (empty strings, exact fitting, buffer overflows), peak memory watermark tracking, off-heap direct `realloc` data preservation, block size queries, arena reset (`freeAll`), multi-level sub-slice bidirectional mutation propagation, and memory allocator block tracking metrics.
 - Expanded integration test suite (`IntegrationTest`, 1,706 assertions): bidirectional bulk memory copy between off-heap direct and on-heap memory, dynamic vector reallocation shrinking and growing data preservation and truncation safety, pointer-to-pointer indirection and jagged matrix arrays, high-churn multi-bucket pool stability and thrashing verification, partial boundary accesses, slice upper boundary and negative offset protection, double-free rejection across heap and direct off-heap memory, quota limits, and pooling reuse sanitization.
 - Fixed `MemoryAllocator.copyMemory` to correctly incorporate `getRawAddress()` when copying to or from direct off-heap native memory blocks.
-- Expanded benchmark suite (`BenchmarkRuntime`): added C++ virtual method dispatch throughput benchmarking (CppObject/VTable), sprintf formatting throughput, and in-place qsort execution performance.
+- Expanded benchmark suite (`BenchmarkRuntime`): added `StructLayout` field access throughput (22M ops/sec), off-heap direct native pointer read/write throughput (31.5M ops/sec), C++ virtual method dispatch throughput (6.4M ops/sec), sprintf formatting throughput, and in-place qsort execution performance.
 
 ## [0.1.0] - 2026-06-25
 ### Added

@@ -24,6 +24,12 @@ public class BenchmarkRuntime {
         // 5. Standard C Library Routines Performance
         benchStdLibOps(allocator);
 
+        // 6. Structured Memory Layout Field Operations
+        benchStructLayoutAccess(allocator);
+
+        // 7. Off-Heap Direct Memory Read/Write Operations
+        benchDirectNativeMemoryAccess(allocator);
+
         System.out.println("=== BENCHMARK COMPLETE ===");
     }
 
@@ -113,6 +119,58 @@ public class BenchmarkRuntime {
         System.out.printf("[Benchmark] Primitive read/write ops/sec: %,.0f (avg: %.2f ns/op)%n", opsPerSec, (double) durationNs / (BENCHMARK_ITERS * 2));
 
         allocator.free(ptr);
+    }
+
+    private static void benchStructLayoutAccess(MemoryAllocator allocator) {
+        StructLayout layout = StructLayout.builder()
+                .addField("tag", StructLayout.Type.BYTE)
+                .addField("id", StructLayout.Type.INT)
+                .addField("val", StructLayout.Type.DOUBLE)
+                .build();
+
+        ManagedPointer<?> mem = allocator.malloc(layout.getSize());
+
+        for (int i = 0; i < WARMUP_ITERS; i++) {
+            layout.writeInt(mem, "id", i);
+            layout.writeDouble(mem, "val", i * 1.5);
+            int id = layout.readInt(mem, "id");
+            double val = layout.readDouble(mem, "val");
+        }
+
+        long start = System.nanoTime();
+        for (int i = 0; i < BENCHMARK_ITERS; i++) {
+            layout.writeInt(mem, "id", i);
+            layout.writeDouble(mem, "val", i * 1.5);
+            int id = layout.readInt(mem, "id");
+            double val = layout.readDouble(mem, "val");
+        }
+        long duration = System.nanoTime() - start;
+        double opsPerSec = (BENCHMARK_ITERS * 4.0) / (duration / 1_000_000_000.0);
+        System.out.printf("[Benchmark] StructLayout field ops/sec:        %,.0f (avg: %.2f ns/op)%n",
+                opsPerSec, (double) duration / (BENCHMARK_ITERS * 4));
+
+        allocator.free(mem);
+    }
+
+    private static void benchDirectNativeMemoryAccess(MemoryAllocator allocator) {
+        ManagedPointer<?> direct = allocator.mallocDirect(64);
+
+        for (int i = 0; i < WARMUP_ITERS; i++) {
+            direct.writeLong(i * 1000L);
+            long val = direct.readLong();
+        }
+
+        long start = System.nanoTime();
+        for (int i = 0; i < BENCHMARK_ITERS; i++) {
+            direct.writeLong(i * 1000L);
+            long val = direct.readLong();
+        }
+        long duration = System.nanoTime() - start;
+        double opsPerSec = (BENCHMARK_ITERS * 2.0) / (duration / 1_000_000_000.0);
+        System.out.printf("[Benchmark] Off-heap direct read/write ops/sec:%,.0f (avg: %.2f ns/op)%n",
+                opsPerSec, (double) duration / (BENCHMARK_ITERS * 2));
+
+        allocator.free(direct);
     }
 
     private static void benchAllocations(MemoryAllocator allocator) {
