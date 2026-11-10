@@ -48,7 +48,7 @@
    - Build & test automation: `build.sh`, `build.bat`, `test.sh`, `test.bat`.
 
 ## Test & Verification Status
-- **Unit Suite (`TestRuntime`)**: 286 assertions passing across 23 modular test suites (including multi-level sub-slice mutation propagation, allocator block tracking metrics across malloc/realloc/free cycles, pointer arithmetic chains, direct memory alignment, IEEE 754 type-punning, odd/single-byte boundary clamping, cross-block heap/direct isolation, and quota exhaustion recovery).
+- **Unit Suite (`TestRuntime`)**: 301 assertions passing across 24 modular test suites (including peak watermark tracking, direct off-heap realloc, block size queries, arena freeAll resets, multi-level sub-slice mutation propagation, allocator block tracking metrics across malloc/realloc/free cycles, pointer arithmetic chains, direct memory alignment, IEEE 754 type-punning, odd/single-byte boundary clamping, cross-block heap/direct isolation, and quota exhaustion recovery).
 - **Integration Suite (`IntegrationTest`)**: 1,706 assertions passing (heterogeneous heap/direct copyMemory, cyclic dynamic vector resizing, pointer-to-pointer indirection, jagged matrices, high-churn pooling stability, boundary memory checks, slice upper/negative bounds protection, double-free rejection, quota enforcement, contiguous struct arrays, polymorphic dispatch, and concurrent pooling).
 - **C++ Object Suite (`TestCppObject`)**: 14 assertions passing (single/multiple inheritance, thunks, virtual destructors, pure virtuals).
 - **CLI Suite (`TestCLI`)**: 29 assertions passing (help, version, info, bench, test runners, invalid options).

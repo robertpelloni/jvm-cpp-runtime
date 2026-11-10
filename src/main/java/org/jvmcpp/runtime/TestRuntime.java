@@ -32,6 +32,7 @@ public class TestRuntime {
         testBoundsAndExceptions(allocator);
         testPointerArithmeticAndAlignment(allocator);
         testMemoryAllocatorBlockTrackingIntegrity();
+        testAdvancedAllocatorFeatures();
         testMemoryAllocatorOperations(allocator);
         testAllocatorQuotaExhaustionRecovery();
         testStdLibStringShims(allocator);
@@ -312,6 +313,51 @@ public class TestRuntime {
         tracker.free(p3);
         assertEquals(0L, tracker.getActiveAllocationCount(), "Active allocations after freeing all");
         assertEquals(0L, tracker.getTotalAllocatedBytes(), "Total bytes after freeing all");
+    }
+
+    /**
+     * Validates advanced memory management features: peak memory usage watermark,
+     * block size queries, off-heap direct reallocations, pool clearing, and freeAll arena resets.
+     */
+    private static void testAdvancedAllocatorFeatures() {
+        MemoryAllocator alloc = new MemoryAllocator(1200);
+        assertEquals(0L, alloc.getPeakAllocatedBytes(), "Initial peak should be 0");
+
+        ManagedPointer<?> p1 = alloc.malloc(200);
+        assertEquals(200L, alloc.getPeakAllocatedBytes(), "Peak after 200 byte alloc");
+        assertEquals(200L, alloc.getAllocatedBlockSize(p1), "getAllocatedBlockSize for heap pointer");
+
+        ManagedPointer<?> p2 = alloc.mallocDirect(300);
+        assertTrue(p2.isDirect(), "p2 should be direct");
+        assertEquals(500L, alloc.getPeakAllocatedBytes(), "Peak after 300 byte direct alloc (200 + 300)");
+        assertEquals(300L, alloc.getAllocatedBlockSize(p2), "getAllocatedBlockSize for direct pointer");
+
+        // Direct realloc test: 500 current + 600 new = 1100 <= 1200
+        p2.writeInt(0xCAFEBABE);
+        p2 = alloc.realloc(p2, 600);
+        assertTrue(p2.isDirect(), "Reallocated direct pointer should remain direct off-heap");
+        assertEquals(600L, p2.getBounds(), "Reallocated direct pointer bounds");
+        assertEquals(0xCAFEBABE, p2.readInt(), "Data preserved after direct realloc");
+        assertEquals(1100L, alloc.getPeakAllocatedBytes(), "Peak after realloc expansion to 600 (500 + 600 before old 300 freed)");
+
+        // Free p1; total drops to 600, but peak remains 1100
+        alloc.free(p1);
+        assertEquals(600L, alloc.getTotalAllocatedBytes(), "Total after freeing p1");
+        assertEquals(1100L, alloc.getPeakAllocatedBytes(), "Peak remains 1100 after partial free");
+
+        // Check untracked pointer block size query returns -1
+        ManagedPointer<?> foreign = new ManagedPointer<>(new byte[16], 0, 16);
+        assertEquals(-1L, alloc.getAllocatedBlockSize(foreign), "Untracked pointer block size should return -1");
+
+        // Pooling and pool clearing
+        ManagedPointer<?> pooled = alloc.allocatePooled(64);
+        alloc.freePooled(pooled);
+        alloc.clearPools(); // should empty cached pools without throwing
+
+        // freeAll teardown
+        alloc.freeAll();
+        assertEquals(0L, alloc.getActiveAllocationCount(), "Active allocations after freeAll should be 0");
+        assertEquals(0L, alloc.getTotalAllocatedBytes(), "Total bytes after freeAll should be 0");
     }
 
     private static void testMemoryAllocatorOperations(MemoryAllocator allocator) {
