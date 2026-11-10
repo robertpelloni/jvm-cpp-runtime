@@ -44,7 +44,7 @@
 
 6. **Tooling & Scripts**:
    - CLI runner: `org.jvmcpp.runtime.cli.Main` (`run.sh` / `run.bat`) supporting `--test`, `--integration`, `--all`, `--bench`, `--info`, `--version`, and `--help`.
-   - Performance suite: `BenchmarkRuntime.java` (benchmarking primitive read/write, malloc/free, pooled alloc/free, copyMemory memcpy, virtual method dispatch on CppObject/VTable, sprintf formatting, in-place qsort, StructLayout field access, and off-heap direct pointer throughput).
+   - Performance suite: `BenchmarkRuntime.java` (benchmarking primitive read/write, pointer arithmetic stride indexing, malloc/free, pooled alloc/free, allocation scaling across 16B-4KB size tiers, copyMemory memcpy, virtual method dispatch on CppObject/VTable, sprintf formatting, in-place qsort, StructLayout field access, and off-heap direct pointer throughput).
    - Build & test automation: `build.sh`, `build.bat`, `test.sh`, `test.bat`.
 
 ## Test & Verification Status

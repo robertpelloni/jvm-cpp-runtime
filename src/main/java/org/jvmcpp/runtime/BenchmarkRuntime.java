@@ -12,22 +12,28 @@ public class BenchmarkRuntime {
         // 1. Primitive Read/Write Throughput
         benchPrimitiveAccess(allocator);
 
-        // 2. Memory Allocation & Pooling Throughput
+        // 2. Pointer Arithmetic & Stride Indexing Throughput
+        benchPointerArithmeticThroughput(allocator);
+
+        // 3. Memory Allocation & Pooling Throughput
         benchAllocations(allocator);
 
-        // 3. String & Memcpy Performance
+        // 4. Allocation Scaling Across Size Tiers
+        benchAllocationScalingThroughput(allocator);
+
+        // 5. String & Memcpy Performance
         benchMemoryOps(allocator);
 
-        // 4. C++ Virtual Method Dispatch Performance
+        // 6. C++ Virtual Method Dispatch Performance
         benchVirtualDispatch(allocator);
 
-        // 5. Standard C Library Routines Performance
+        // 7. Standard C Library Routines Performance
         benchStdLibOps(allocator);
 
-        // 6. Structured Memory Layout Field Operations
+        // 8. Structured Memory Layout Field Operations
         benchStructLayoutAccess(allocator);
 
-        // 7. Off-Heap Direct Memory Read/Write Operations
+        // 9. Off-Heap Direct Memory Read/Write Operations
         benchDirectNativeMemoryAccess(allocator);
 
         System.out.println("=== BENCHMARK COMPLETE ===");
@@ -173,6 +179,31 @@ public class BenchmarkRuntime {
         allocator.free(direct);
     }
 
+    private static void benchPointerArithmeticThroughput(MemoryAllocator allocator) {
+        int elementCount = 2048; // 2048 ints = 8192 bytes
+        ManagedPointer<?> buffer = allocator.malloc(elementCount * 4);
+
+        // Warmup
+        for (int i = 0; i < WARMUP_ITERS; i++) {
+            long off = (i % elementCount) * 4L;
+            buffer.addOffset(off).writeInt(i);
+            int v = buffer.addOffset(off).readInt();
+        }
+
+        long start = System.nanoTime();
+        for (int i = 0; i < BENCHMARK_ITERS; i++) {
+            long off = (i % elementCount) * 4L;
+            buffer.addOffset(off).writeInt(i);
+            int v = buffer.addOffset(off).readInt();
+        }
+        long duration = System.nanoTime() - start;
+        double opsPerSec = (BENCHMARK_ITERS * 2.0) / (duration / 1_000_000_000.0);
+        System.out.printf("[Benchmark] Pointer arithmetic + stride indexing: %,.0f ops/sec (avg: %.2f ns/op)%n",
+                opsPerSec, (double) duration / (BENCHMARK_ITERS * 2));
+
+        allocator.free(buffer);
+    }
+
     private static void benchAllocations(MemoryAllocator allocator) {
         // Standard malloc/free
         long start = System.nanoTime();
@@ -193,6 +224,35 @@ public class BenchmarkRuntime {
         long durationPooled = System.nanoTime() - start;
         System.out.printf("[Benchmark] Pooled alloc/free ops/sec:   %,.0f (avg: %.2f ns/op)%n",
                 (double) BENCHMARK_ITERS / (durationPooled / 1_000_000_000.0), (double) durationPooled / BENCHMARK_ITERS);
+    }
+
+    private static void benchAllocationScalingThroughput(MemoryAllocator allocator) {
+        long[] sizes = { 16, 64, 256, 1024, 4096 };
+        int iterations = 20_000;
+
+        System.out.println("[Benchmark] --- Allocation Scaling Across Block Size Tiers ---");
+        for (long sz : sizes) {
+            // Malloc
+            long start = System.nanoTime();
+            for (int i = 0; i < iterations; i++) {
+                ManagedPointer<?> p = allocator.malloc(sz);
+                allocator.free(p);
+            }
+            long durMalloc = System.nanoTime() - start;
+
+            // Pooled
+            start = System.nanoTime();
+            for (int i = 0; i < iterations; i++) {
+                ManagedPointer<?> p = allocator.allocatePooled(sz);
+                allocator.freePooled(p);
+            }
+            long durPooled = System.nanoTime() - start;
+
+            System.out.printf("[Benchmark] Tier %5d bytes: malloc=%,.0f ops/sec (%.1f ns/op) | pooled=%,.0f ops/sec (%.1f ns/op)%n",
+                    sz,
+                    (double) iterations / (durMalloc / 1_000_000_000.0), (double) durMalloc / iterations,
+                    (double) iterations / (durPooled / 1_000_000_000.0), (double) durPooled / iterations);
+        }
     }
 
     private static void benchMemoryOps(MemoryAllocator allocator) {
