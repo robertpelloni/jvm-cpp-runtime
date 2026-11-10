@@ -28,6 +28,7 @@ public class TestRuntime {
         testDynamicPointerArithmeticChain(allocator);
         testPrimitiveTypePunningAndEndianness(allocator);
         testPointerSubSliceMutationPropagation(allocator);
+        testPointerSubRangeOverlappingCopyAndMemmove(allocator);
         testPrimitives(allocator);
         testBoundsAndExceptions(allocator);
         testPointerArithmeticAndAlignment(allocator);
@@ -35,6 +36,7 @@ public class TestRuntime {
         testAdvancedAllocatorFeatures();
         testMemoryAllocatorOperations(allocator);
         testAllocatorQuotaExhaustionRecovery();
+        testCStringBoundaryEdgeCases(allocator);
         testStdLibStringShims(allocator);
         testStructLayout(allocator);
         testByteBufferAndArrayConversion(allocator);
@@ -168,6 +170,41 @@ public class TestRuntime {
         assertTrue(caughtL2Overflow, "Reading at offset 16 of 16-byte Level 2 slice must throw MemoryAccessException");
 
         allocator.free(root);
+    }
+
+    /**
+     * Validates memory copying across overlapping regions within the same allocation block
+     * (analogous to C memmove behavior), ensuring forward and backward shifts preserve source data.
+     */
+    private static void testPointerSubRangeOverlappingCopyAndMemmove(MemoryAllocator allocator) {
+        ManagedPointer<?> buffer = allocator.malloc(32);
+
+        // Populate with sequence: [0, 1, 2, ..., 15, 0, 0, ...]
+        for (int i = 0; i < 16; i++) {
+            buffer.addOffset(i).writeByte((byte) (i + 1));
+        }
+
+        // Shift forward: copy 10 bytes from offset 0 to offset 4 (source: 0..9, dest: 4..13)
+        ManagedPointer<?> src = buffer;
+        ManagedPointer<?> dst = buffer.addOffset(4);
+        MemoryAllocator.copyMemory(dst, src, 10);
+
+        // Verify destination has [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        for (int i = 0; i < 10; i++) {
+            assertEquals((byte) (i + 1), buffer.addOffset(4 + i).readByte(), "Forward shifted byte at " + (4 + i));
+        }
+
+        // Shift backward: copy 8 bytes from offset 4 to offset 0 (source: 4..11, dest: 0..7)
+        ManagedPointer<?> srcBack = buffer.addOffset(4);
+        ManagedPointer<?> dstBack = buffer;
+        MemoryAllocator.copyMemory(dstBack, srcBack, 8);
+
+        // Verify destination has first 8 bytes of source
+        for (int i = 0; i < 8; i++) {
+            assertEquals((byte) (i + 1), buffer.addOffset(i).readByte(), "Backward shifted byte at " + i);
+        }
+
+        allocator.free(buffer);
     }
 
     private static void testPrimitives(MemoryAllocator allocator) {
@@ -468,6 +505,37 @@ public class TestRuntime {
 
         assertEquals(0L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes should be 0 after full cleanup");
         assertEquals(0L, quotaAlloc.getActiveAllocationCount(), "Active count should be 0 after full cleanup");
+    }
+
+    /**
+     * Validates C-string null termination, empty string encoding, and exact boundary
+     * fit vs boundary overflow conditions.
+     */
+    private static void testCStringBoundaryEdgeCases(MemoryAllocator allocator) {
+        // Empty C-string requires 1 byte for null terminator '\0'
+        ManagedPointer<?> emptyStr = allocator.malloc(1);
+        emptyStr.writeCString("");
+        assertEquals(0, emptyStr.readCString().length(), "Empty C-string length should be 0");
+        assertEquals("", emptyStr.readCString(), "Empty C-string value");
+        assertEquals((byte) 0, emptyStr.readByte(), "Empty C-string byte 0 is null terminator");
+
+        // String "Hi" (2 bytes + 1 null = 3 bytes total) inside 3-byte allocation
+        ManagedPointer<?> exactFit = allocator.malloc(3);
+        exactFit.writeCString("Hi");
+        assertEquals("Hi", exactFit.readCString(), "Exact fit C-string read");
+
+        // Attempting to write 3-character string ("Hey") into 3-byte allocation
+        // (requires 4 bytes: 3 chars + 1 null) must fail
+        boolean caughtOverflow = false;
+        try {
+            exactFit.writeCString("Hey");
+        } catch (MemoryAccessException e) {
+            caughtOverflow = true;
+        }
+        assertTrue(caughtOverflow, "Writing 4-byte C-string into 3-byte buffer must throw MemoryAccessException");
+
+        allocator.free(emptyStr);
+        allocator.free(exactFit);
     }
 
     private static void testStdLibStringShims(MemoryAllocator allocator) {
