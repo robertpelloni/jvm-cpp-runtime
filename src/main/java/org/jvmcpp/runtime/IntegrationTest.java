@@ -29,6 +29,8 @@ public class IntegrationTest {
 
         testPointerArrayIndirectionAndPointersToPointers(allocator);
         testHighChurnPoolStabilityAndThrashing(allocator);
+        testDirectAndHeapBufferInteroperability(allocator);
+        testDynamicVectorReallocationShrinkingAndGrowing(allocator);
         testBoundaryMemoryAccess(allocator);
         testSliceBoundsAndNegativeOffsetSafety(allocator);
         testMemoryLifecycleAndDoubleFreeRejection(allocator);
@@ -38,6 +40,97 @@ public class IntegrationTest {
         testConcurrentProducerConsumerPooling(allocator);
 
         System.out.println("=== ALL INTEGRATION TESTS PASSED (" + assertions + " assertions verified) ===");
+    }
+
+    /**
+     * Simulates cyclic dynamic vector capacity adjustments (growing, writing,
+     * shrinking to fit, and reading back) across multiple realloc rounds.
+     */
+    private static void testDynamicVectorReallocationShrinkingAndGrowing(MemoryAllocator allocator) {
+        long currentCapacity = 16;
+        ManagedPointer<?> buffer = allocator.malloc(currentCapacity * 4); // 16 ints = 64 bytes
+
+        // Fill initial 16 ints
+        for (int i = 0; i < 16; i++) {
+            buffer.addOffset(i * 4).writeInt(i * 100);
+        }
+
+        // Expand to 32 ints (128 bytes)
+        buffer = allocator.realloc(buffer, 32 * 4);
+        assertEquals(128L, buffer.getBounds(), "Expanded buffer bounds should be 128");
+
+        // Verify initial 16 ints preserved after growth
+        for (int i = 0; i < 16; i++) {
+            assertEquals(i * 100, buffer.addOffset(i * 4).readInt(), "Preserved int after growth at " + i);
+        }
+
+        // Fill remaining 16 ints (16..31)
+        for (int i = 16; i < 32; i++) {
+            buffer.addOffset(i * 4).writeInt(i * 100);
+        }
+
+        // Shrink vector down to 8 ints (32 bytes)
+        buffer = allocator.realloc(buffer, 8 * 4);
+        assertEquals(32L, buffer.getBounds(), "Shrunk buffer bounds should be 32");
+
+        // Verify remaining 8 ints preserved after shrink
+        for (int i = 0; i < 8; i++) {
+            assertEquals(i * 100, buffer.addOffset(i * 4).readInt(), "Preserved int after shrink at " + i);
+        }
+
+        // Out-of-bounds check on truncated portion (offset 8*4 = 32 on 32-byte buffer)
+        boolean caughtTruncatedAccess = false;
+        try {
+            buffer.addOffset(8 * 4).readInt();
+        } catch (MemoryAccessException e) {
+            caughtTruncatedAccess = true;
+        }
+        assertTrue(caughtTruncatedAccess, "Reading truncated elements past shrunk bounds must throw MemoryAccessException");
+
+        allocator.free(buffer);
+    }
+
+    /**
+     * Validates bidirectional bulk memory copying (copyMemory) between off-heap
+     * direct native memory blocks (mallocDirect) and on-heap array-backed blocks (malloc),
+     * ensuring proper offset displacement and byte preservation across heterogeneous backings.
+     */
+    private static void testDirectAndHeapBufferInteroperability(MemoryAllocator allocator) {
+        long bufferSize = 64;
+        ManagedPointer<?> heapSource = allocator.malloc(bufferSize);
+        ManagedPointer<?> directDest = allocator.mallocDirect(bufferSize);
+        ManagedPointer<?> heapDest = allocator.malloc(bufferSize);
+
+        // Populate heap source with patterned data
+        for (int i = 0; i < bufferSize; i++) {
+            heapSource.addOffset(i).writeByte((byte) (i ^ 0x5C));
+        }
+
+        // Copy Heap -> Direct
+        MemoryAllocator.copyMemory(directDest, heapSource, bufferSize);
+
+        // Verify Direct contents
+        for (int i = 0; i < bufferSize; i++) {
+            assertEquals((byte) (i ^ 0x5C), directDest.addOffset(i).readByte(), "Direct buffer byte at " + i);
+        }
+
+        // Modify a window in Direct memory (offsets 16..32)
+        for (int i = 16; i < 32; i++) {
+            directDest.addOffset(i).writeByte((byte) 0xAA);
+        }
+
+        // Copy Direct -> Heap
+        MemoryAllocator.copyMemory(heapDest, directDest, bufferSize);
+
+        // Verify Heap destination contents
+        for (int i = 0; i < bufferSize; i++) {
+            byte expected = (i >= 16 && i < 32) ? (byte) 0xAA : (byte) (i ^ 0x5C);
+            assertEquals(expected, heapDest.addOffset(i).readByte(), "Roundtripped heap buffer byte at " + i);
+        }
+
+        allocator.free(heapSource);
+        allocator.free(directDest);
+        allocator.free(heapDest);
     }
 
     /**

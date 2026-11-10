@@ -261,8 +261,12 @@ public final class MemoryAllocator {
 
             long byteArrayOffset = unsafe.arrayBaseOffset(byte[].class);
 
-            long destAddress = dest.getBase() instanceof byte[] ? byteArrayOffset + dest.getOffset() : dest.getOffset();
-            long srcAddress = src.getBase() instanceof byte[] ? byteArrayOffset + src.getOffset() : src.getOffset();
+            long destAddress = dest.getBase() instanceof byte[]
+                    ? byteArrayOffset + dest.getOffset()
+                    : dest.getRawAddress() + dest.getOffset();
+            long srcAddress = src.getBase() instanceof byte[]
+                    ? byteArrayOffset + src.getOffset()
+                    : src.getRawAddress() + src.getOffset();
 
             unsafe.copyMemory(src.getBase(), srcAddress, dest.getBase(), destAddress, bytes);
         } catch (Exception e) {
