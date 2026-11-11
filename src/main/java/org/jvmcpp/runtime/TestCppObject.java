@@ -35,8 +35,90 @@ public class TestCppObject {
         testMultipleInheritanceAndThunks(allocator);
         testPureVirtualFailure();
         testRTTIAndDynamicCast(allocator);
+        testOperatorOverloading(allocator);
 
         System.out.println("=== ALL CPP OBJECT TESTS PASSED (" + assertionsCount + " assertions verified) ===");
+    }
+
+    /**
+     * Validates virtual operator overloading dispatch:
+     * class Vector2D {
+     *     double x, y;
+     *     virtual bool operator==(const Vector2D& other);
+     *     virtual Vector2D operator+(const Vector2D& other);
+     *     virtual double operator[](long index);
+     * };
+     */
+    private static void testOperatorOverloading(MemoryAllocator allocator) {
+        VTable vec2dVTable = new VTable("Vector2D");
+        vec2dVTable.registerMethod((thisPtr, args) -> null); // slot 0: dtor
+
+        // slot 1: operator==
+        int opEqualsSlot = vec2dVTable.registerMethod((thisPtr, args) -> {
+            CppObject other = (CppObject) args[0];
+            double x1 = thisPtr.addOffset(CppObject.MEMBERS_OFFSET).readDouble();
+            double y1 = thisPtr.addOffset(CppObject.MEMBERS_OFFSET + 8).readDouble();
+            double x2 = other.getMembersPointer().readDouble();
+            double y2 = other.getMembersPointer().addOffset(8).readDouble();
+            return Double.compare(x1, x2) == 0 && Double.compare(y1, y2) == 0;
+        });
+
+        // slot 2: operator+
+        int opPlusSlot = vec2dVTable.registerMethod((thisPtr, args) -> {
+            CppObject other = (CppObject) args[0];
+            double x1 = thisPtr.addOffset(CppObject.MEMBERS_OFFSET).readDouble();
+            double y1 = thisPtr.addOffset(CppObject.MEMBERS_OFFSET + 8).readDouble();
+            double x2 = other.getMembersPointer().readDouble();
+            double y2 = other.getMembersPointer().addOffset(8).readDouble();
+
+            CppObject result = new CppObject(allocator, vec2dVTable, 16);
+            result.getMembersPointer().writeDouble(x1 + x2);
+            result.getMembersPointer().addOffset(8).writeDouble(y1 + y2);
+            return result;
+        });
+
+        // slot 3: operator[]
+        int opSubscriptSlot = vec2dVTable.registerMethod((thisPtr, args) -> {
+            long index = (Long) args[0];
+            if (index == 0) {
+                return thisPtr.addOffset(CppObject.MEMBERS_OFFSET).readDouble();
+            } else if (index == 1) {
+                return thisPtr.addOffset(CppObject.MEMBERS_OFFSET + 8).readDouble();
+            } else {
+                throw new IndexOutOfBoundsException("Vector2D index out of bounds: " + index);
+            }
+        });
+
+        // Create vectors v1(3.0, 4.0) and v2(3.0, 4.0)
+        CppObject v1 = new CppObject(allocator, vec2dVTable, 16);
+        v1.getMembersPointer().writeDouble(3.0);
+        v1.getMembersPointer().addOffset(8).writeDouble(4.0);
+
+        CppObject v2 = new CppObject(allocator, vec2dVTable, 16);
+        v2.getMembersPointer().writeDouble(3.0);
+        v2.getMembersPointer().addOffset(8).writeDouble(4.0);
+
+        CppObject v3 = new CppObject(allocator, vec2dVTable, 16);
+        v3.getMembersPointer().writeDouble(1.0);
+        v3.getMembersPointer().addOffset(8).writeDouble(2.0);
+
+        // Test operator==
+        assertTrue(v1.operatorEquals(opEqualsSlot, v2), "v1 == v2 should be true");
+        assertTrue(!v1.operatorEquals(opEqualsSlot, v3), "v1 == v3 should be false");
+
+        // Test operator[]
+        assertEquals(3.0, (Double) v1.operatorSubscript(opSubscriptSlot, 0L), "v1[0] == 3.0");
+        assertEquals(4.0, (Double) v1.operatorSubscript(opSubscriptSlot, 1L), "v1[1] == 4.0");
+
+        // Test operator+
+        CppObject vSum = (CppObject) v1.operatorBinary(opPlusSlot, v3);
+        assertEquals(4.0, (Double) vSum.operatorSubscript(opSubscriptSlot, 0L), "vSum[0] == 4.0");
+        assertEquals(6.0, (Double) vSum.operatorSubscript(opSubscriptSlot, 1L), "vSum[1] == 6.0");
+
+        v1.destroy(allocator);
+        v2.destroy(allocator);
+        v3.destroy(allocator);
+        vSum.destroy(allocator);
     }
 
     /**

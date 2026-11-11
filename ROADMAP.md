@@ -19,6 +19,7 @@
 - [x] Support single/multiple inheritance vtable slot copying, method overriding, subobject slicing, and this-pointer thunks (`asSubobject`, `getCompleteObjectPointer`).
 - [x] Support standard virtual destructor conventions at vtable slot 0.
 - [x] Support C++ Runtime Type Information (RTTI) and polymorphic casting (`isInstanceOf`, `dynamicCast`, `isSubclassOf`).
+- [x] Support C++ operator overloading convention helpers (`operatorEquals`, `operatorSubscript`, `operatorBinary`).
 - [x] Provide lightweight standard C library shims (`<string.h>`, `<math.h>`, `<stdlib.h>`: strlen, strcpy, strncpy, strcmp, strncmp, strcat, sprintf, fabs, sqrt, pow, sin, cos, floor, ceil, atoi, atol, atof, rand, srand, qsort, bsearch) implemented against `ManagedPointer`.
 - [x] Add benchmarking suite (`BenchmarkRuntime.java`).
 - [x] Add CLI runner (`org.jvmcpp.runtime.cli.Main`, `run.sh`, `run.bat`) and CLI test suite (`TestCLI.java`).

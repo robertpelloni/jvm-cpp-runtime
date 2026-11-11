@@ -143,6 +143,28 @@ public class CppObject {
     }
 
     /**
+     * Dispatches virtual operator== comparison against another object or operand.
+     */
+    public boolean operatorEquals(int opEqualsSlot, Object operand) {
+        Object res = invokeVirtual(opEqualsSlot, operand);
+        return Boolean.TRUE.equals(res);
+    }
+
+    /**
+     * Dispatches virtual operator[] subscript access.
+     */
+    public Object operatorSubscript(int opSubscriptSlot, long index) {
+        return invokeVirtual(opSubscriptSlot, index);
+    }
+
+    /**
+     * Dispatches virtual binary operator (e.g. operator+, operator-, operator*).
+     */
+    public Object operatorBinary(int opSlot, Object operand) {
+        return invokeVirtual(opSlot, operand);
+    }
+
+    /**
      * Dispatches virtual destructor if registered at slot 0, and optionally frees
      * the underlying complete object memory using the provided allocator.
      */

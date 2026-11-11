@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - Memory utility: `fillMemory` (memset) in `ManagedPointer` and `MemoryAllocator`.
 - Memory reallocation: `realloc` in `MemoryAllocator` supporting dynamic block resizing and zero-copy/copy reallocation.
 - Standard C Library Shims (`org.jvmcpp.runtime.StdLib`): `<string.h>` (`strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `sprintf`), `<math.h>` (`fabs`, `sqrt`, `pow`, `sin`, `cos`, `floor`, `ceil`), `<stdlib.h>` (`atoi`, `atol`, `atof`, `rand`, `srand`, `qsort`, `bsearch`).
-- C++ class instance layout and vtable dispatch primitives (`CppObject`, `VTable`): single and multiple inheritance, parent vtable slot copying, method overriding, subobject slicing, this-pointer thunks (`asSubobject`, `getCompleteObjectPointer`), virtual destructors at slot 0, C++ RTTI type inspection (`isInstanceOf`), and polymorphic casting (`dynamicCast`).
+- C++ class instance layout and vtable dispatch primitives (`CppObject`, `VTable`): single and multiple inheritance, parent vtable slot copying, method overriding, subobject slicing, this-pointer thunks (`asSubobject`, `getCompleteObjectPointer`), virtual destructors at slot 0, C++ RTTI type inspection (`isInstanceOf`), polymorphic casting (`dynamicCast`), and operator overloading convention dispatchers (`operatorEquals`, `operatorSubscript`, `operatorBinary`).
 - Unified CLI runner (`org.jvmcpp.runtime.cli.Main`, `run.sh`, `run.bat`) and CLI automated test harness (`TestCLI`).
 - Build and execution scripts: `test.sh` and `test.bat`.
 - Project documentation governance: `VERSION.md`, `ROADMAP.md`, `TODO.md`, `VISION.md`, `MEMORY.md`, `DEPLOY.md`, `IDEAS.md`, `CHANGELOG.md`.
