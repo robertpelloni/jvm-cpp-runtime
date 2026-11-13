@@ -7,22 +7,27 @@ allocator — so generated/translated C++ can manipulate "native-style"
 memory while every access stays bounds-checked and throws instead of
 corrupting memory.
 
+**Version:** 0.2.0
+
 ## What's implemented
 
-Four classes in `src/main/java/org/jvmcpp/runtime/` (~12 KB total):
+Ten classes in `src/main/java/org/jvmcpp/runtime/` (~65 KB total):
 
 - `ManagedPointer<T>` — a base + offset + bounds pointer over an object;
   typed reads/writes (`readByte`, `readInt`, `readLong`, `readPointer`, …)
   with an explicit bounds check before every access
 - `MemoryAccessException` — thrown on out-of-bounds or negative offsets
-- `MemoryAllocator` — a managed on-heap allocation layer
-- `TestRuntime` — a test/driver harness for the above
+- `MemoryAllocator` — a managed on-heap allocation layer with pooled
+  quota checks
+- `CppObject`, `VTable`, `StructLayout` — C++ object model: object
+  layout, virtual-table conventions, struct field layout
+- `StdLib` — sprintf and math routines for translated code
+- `cli/` — a CLI runner for executing translated programs
+- `TestRuntime`, `IntegrationTest`, `BenchmarkRuntime` — test/driver
+  harness, integration suite, and benchmark runner
 
-Per `HANDOFF.md`, the classes were merged in from the `jvmcpp-runtime`
-branch and are the integrated state of the project. The README this
-replaces was mostly the LLM prompt used to generate the code; the code
-itself is what's described above — no more, no less. There is no C++
-compiler in this repo: this is only the Java target layer for one.
+There is no C++ compiler in this repo: this is only the Java target
+layer for one.
 
 ## Building
 
@@ -30,11 +35,14 @@ No build system — plain `javac`:
 
 ```bash
 ./build.sh   # javac -d . src/main/java/org/jvmcpp/runtime/*.java
+./test.sh    # runs the test suites
+./run.sh     # CLI runner
 ```
 
 ## Status
 
-Tiny, self-contained experiment from June 2026 (latest commit is an
-automated merge checkpoint, October 2026). Companion-in-spirit to
-`libjruntime`, which attacks the adjacent problem from the other direction
-(Java source → native C++).
+Small, self-contained experiment, actively developed through November
+2026 (last commit 2026-11-07; recent work added the object model,
+CLI runner, and integration tests). Companion-in-spirit to
+`libjruntime`, which attacks the adjacent problem from the other
+direction (Java source → native C++).
