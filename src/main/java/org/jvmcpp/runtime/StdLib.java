@@ -187,4 +187,142 @@ public final class StdLib {
     public static double ceil(double x) {
         return Math.ceil(x);
     }
+
+    // Standard C <stdlib.h> numeric parsing routines
+    public static int atoi(ManagedPointer<?> str) {
+        if (str == null) return 0;
+        String s = str.readCString().trim();
+        if (s.isEmpty()) return 0;
+        // Parse leading digits
+        int end = 0;
+        if (s.charAt(0) == '-' || s.charAt(0) == '+') end++;
+        while (end < s.length() && Character.isDigit(s.charAt(end))) {
+            end++;
+        }
+        if (end == 0 || (end == 1 && (s.charAt(0) == '-' || s.charAt(0) == '+'))) return 0;
+        try {
+            return Integer.parseInt(s.substring(0, end));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    public static long atol(ManagedPointer<?> str) {
+        if (str == null) return 0L;
+        String s = str.readCString().trim();
+        if (s.isEmpty()) return 0L;
+        int end = 0;
+        if (s.charAt(0) == '-' || s.charAt(0) == '+') end++;
+        while (end < s.length() && Character.isDigit(s.charAt(end))) {
+            end++;
+        }
+        if (end == 0 || (end == 1 && (s.charAt(0) == '-' || s.charAt(0) == '+'))) return 0L;
+        try {
+            return Long.parseLong(s.substring(0, end));
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    public static double atof(ManagedPointer<?> str) {
+        if (str == null) return 0.0;
+        String s = str.readCString().trim();
+        if (s.isEmpty()) return 0.0;
+        try {
+            return Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+
+    // Standard C pseudo-random routines
+    private static long nextRand = 1;
+
+    public static void srand(int seed) {
+        nextRand = seed & 0xFFFFFFFFL;
+    }
+
+    public static int rand() {
+        nextRand = (nextRand * 1103515245L + 12345L) & 0x7FFFFFFFL;
+        return (int) (nextRand / 65536L) % 32768;
+    }
+
+    @FunctionalInterface
+    public interface CmpFunc {
+        int compare(ManagedPointer<?> a, ManagedPointer<?> b);
+    }
+
+    /**
+     * In-place quicksort over memory block (C qsort).
+     */
+    public static void qsort(ManagedPointer<?> base, int nmemb, int size, CmpFunc cmp) {
+        if (base == null || nmemb <= 1 || size <= 0 || cmp == null) {
+            return;
+        }
+        quickSortHelper(base, 0, nmemb - 1, size, cmp);
+    }
+
+    private static void quickSortHelper(ManagedPointer<?> base, int low, int high, int size, CmpFunc cmp) {
+        if (low < high) {
+            int pi = partition(base, low, high, size, cmp);
+            quickSortHelper(base, low, pi - 1, size, cmp);
+            quickSortHelper(base, pi + 1, high, size, cmp);
+        }
+    }
+
+    private static int partition(ManagedPointer<?> base, int low, int high, int size, CmpFunc cmp) {
+        ManagedPointer<?> pivot = base.addOffset((long) high * size);
+        int i = low - 1;
+        byte[] temp = new byte[size];
+
+        for (int j = low; j < high; j++) {
+            ManagedPointer<?> curr = base.addOffset((long) j * size);
+            if (cmp.compare(curr, pivot) <= 0) {
+                i++;
+                if (i != j) {
+                    swapElements(base.addOffset((long) i * size), curr, temp, size);
+                }
+            }
+        }
+        swapElements(base.addOffset((long) (i + 1) * size), pivot, temp, size);
+        return i + 1;
+    }
+
+    private static void swapElements(ManagedPointer<?> a, ManagedPointer<?> b, byte[] temp, int size) {
+        for (int k = 0; k < size; k++) {
+            temp[k] = a.addOffset(k).readByte();
+        }
+        for (int k = 0; k < size; k++) {
+            a.addOffset(k).writeByte(b.addOffset(k).readByte());
+        }
+        for (int k = 0; k < size; k++) {
+            b.addOffset(k).writeByte(temp[k]);
+        }
+    }
+
+    /**
+     * Binary search over sorted memory block (C bsearch).
+     */
+    public static ManagedPointer<?> bsearch(ManagedPointer<?> key, ManagedPointer<?> base, int nmemb, int size, CmpFunc cmp) {
+        if (key == null || base == null || nmemb <= 0 || size <= 0 || cmp == null) {
+            return null;
+        }
+        int low = 0;
+        int high = nmemb - 1;
+
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            ManagedPointer<?> midPtr = base.addOffset((long) mid * size);
+            int c = cmp.compare(key, midPtr);
+
+            if (c < 0) {
+                high = mid - 1;
+            } else if (c > 0) {
+                low = mid + 1;
+            } else {
+                return midPtr;
+            }
+        }
+        return null;
+    }
 }

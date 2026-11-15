@@ -25,19 +25,186 @@ public class TestRuntime {
     public static void main(String[] args) {
         MemoryAllocator allocator = new MemoryAllocator();
 
+        testDynamicPointerArithmeticChain(allocator);
+        testPrimitiveTypePunningAndEndianness(allocator);
+        testPointerSubSliceMutationPropagation(allocator);
+        testPointerSubRangeOverlappingCopyAndMemmove(allocator);
         testPrimitives(allocator);
         testBoundsAndExceptions(allocator);
         testPointerArithmeticAndAlignment(allocator);
+        testMemoryAllocatorBlockTrackingIntegrity();
+        testAdvancedAllocatorFeatures();
         testMemoryAllocatorOperations(allocator);
+        testAllocatorQuotaExhaustionRecovery();
+        testCStringBoundaryEdgeCases(allocator);
         testStdLibStringShims(allocator);
         testStructLayout(allocator);
         testByteBufferAndArrayConversion(allocator);
         testMemoryPoolRecycling(allocator);
+        testExactAllocatedBlockBoundaryClamping(allocator);
         testEdgeConditionsAndBoundaryLimits(allocator);
+        testCrossBlockDirectAndHeapPointerIsolation(allocator);
+        testPointerCrossBlockAndStringExceptions(allocator);
         testCppObjectAndVTable(allocator);
+        testOffHeapDirectMemory(allocator);
+        testDirectMemoryAlignmentAndBounds(allocator);
+        testMultidimensionalArrayEmulation(allocator);
+        testPointerTypeCastSimulation(allocator);
         testConcurrencyStress(allocator);
 
         System.out.println("All test suites passed successfully! (" + testsRun + " assertions verified)");
+    }
+
+    /**
+     * Validates simulated pointer increment/decrement chains (e.g. while(*p++) operations),
+     * ensuring that sequential addOffset operations maintain correct pointer displacement,
+     * difference calculations, and trigger boundary violations at the exact endpoint.
+     */
+    private static void testDynamicPointerArithmeticChain(MemoryAllocator allocator) {
+        int elementCount = 8;
+        ManagedPointer<?> buffer = allocator.malloc(elementCount * 4);
+
+        // Simulate filling array via walking pointer: int* p = buffer; for(...) *p++ = val;
+        ManagedPointer<?> walker = buffer;
+        for (int i = 0; i < elementCount; i++) {
+            walker.writeInt(100 + i);
+            walker = walker.addOffset(4);
+        }
+
+        // Walker should now be exactly at buffer boundary (offset 32 on 32-byte buffer)
+        assertEquals(32L, walker.getOffset(), "Walker offset after chain should be 32");
+        assertEquals(32L, walker.diff(buffer), "Walker diff from start should be 32 bytes");
+
+        // Attempting to write at walker should throw MemoryAccessException (at boundary)
+        boolean caughtOverflow = false;
+        try {
+            walker.writeInt(999);
+        } catch (MemoryAccessException e) {
+            caughtOverflow = true;
+        }
+        assertTrue(caughtOverflow, "Writing at past-the-end boundary must throw MemoryAccessException");
+
+        // Simulate reading backward: while (walker > buffer) { walker -= 4; read(*walker); }
+        for (int i = elementCount - 1; i >= 0; i--) {
+            walker = walker.addOffset(-4);
+            assertEquals(100 + i, walker.readInt(), "Backward walked value match at index " + i);
+        }
+        assertEquals(0L, walker.getOffset(), "Walker returned to base offset 0");
+
+        // Decrementing past base offset 0 must throw MemoryAccessException
+        boolean caughtUnderflow = false;
+        try {
+            walker.addOffset(-4).readInt();
+        } catch (MemoryAccessException e) {
+            caughtUnderflow = true;
+        }
+        assertTrue(caughtUnderflow, "Decrementing past base offset 0 must throw MemoryAccessException");
+
+        allocator.free(buffer);
+    }
+
+    /**
+     * Validates type-punning between floating point primitives and bitwise integer representations
+     * (e.g. float vs uint32_t, double vs uint64_t) to simulate low-level fast inverse square root
+     * or IEEE 754 inspection in compiled C++ code.
+     */
+    private static void testPrimitiveTypePunningAndEndianness(MemoryAllocator allocator) {
+        ManagedPointer<?> mem = allocator.malloc(16);
+
+        // Float / Int bit punning
+        float testFloat = -13.375f;
+        int expectedIntBits = Float.floatToIntBits(testFloat);
+        mem.writeFloat(testFloat);
+        assertEquals(expectedIntBits, mem.readInt(), "Float written as float should read expected bit pattern as int");
+
+        // Double / Long bit punning
+        double testDouble = 1.0 / 3.0;
+        long expectedLongBits = Double.doubleToLongBits(testDouble);
+        mem.writeDouble(testDouble);
+        assertEquals(expectedLongBits, mem.readLong(), "Double written as double should read expected bit pattern as long");
+
+        // Overwrite as long and read back as double
+        mem.writeLong(expectedLongBits);
+        assertEquals(testDouble, mem.readDouble(), "Long written as bits should read back exact double value");
+
+        allocator.free(mem);
+    }
+
+    /**
+     * Validates bidirectional data mutation propagation across nested sliced sub-views
+     * and parent allocations, ensuring that in-place updates are immediately visible in both
+     * directions while individual slice bounds and offsets remain strictly isolated.
+     */
+    private static void testPointerSubSliceMutationPropagation(MemoryAllocator allocator) {
+        ManagedPointer<?> root = allocator.malloc(64);
+        root.fillMemory((byte) 0, 64);
+
+        // Create slice Level 1 (offsets 16..48, span 32)
+        ManagedPointer<?> sliceL1 = root.slice(16, 32);
+        assertEquals(16L, sliceL1.getOffset(), "Level 1 slice offset");
+        assertEquals(48L, sliceL1.getBounds(), "Level 1 slice bounds");
+
+        // Create slice Level 2 (offsets 8..24 relative to sliceL1 => root offsets 24..40, span 16)
+        ManagedPointer<?> sliceL2 = sliceL1.slice(8, 16);
+        assertEquals(24L, sliceL2.getOffset(), "Level 2 slice offset relative to root");
+        assertEquals(40L, sliceL2.getBounds(), "Level 2 slice bounds relative to root");
+
+        // Write from Level 2 sub-slice
+        sliceL2.writeInt(0x55AA55AA);
+        assertEquals(0x55AA55AA, sliceL2.readInt(), "Level 2 slice read back");
+        assertEquals(0x55AA55AA, sliceL1.addOffset(8).readInt(), "Level 1 slice reflects Level 2 write at offset 8");
+        assertEquals(0x55AA55AA, root.addOffset(24).readInt(), "Root reflects Level 2 write at offset 24");
+
+        // Write from Root at offset 28 (Level 2 offset 4)
+        root.addOffset(28).writeInt(0x12344321);
+        assertEquals(0x12344321, sliceL2.addOffset(4).readInt(), "Level 2 reflects root write at offset 4");
+        assertEquals(0x12344321, sliceL1.addOffset(12).readInt(), "Level 1 reflects root write at offset 12");
+
+        // Bounds isolation: Level 2 cannot read past offset 16 (root offset 40)
+        boolean caughtL2Overflow = false;
+        try {
+            sliceL2.addOffset(16).readByte();
+        } catch (MemoryAccessException e) {
+            caughtL2Overflow = true;
+        }
+        assertTrue(caughtL2Overflow, "Reading at offset 16 of 16-byte Level 2 slice must throw MemoryAccessException");
+
+        allocator.free(root);
+    }
+
+    /**
+     * Validates memory copying across overlapping regions within the same allocation block
+     * (analogous to C memmove behavior), ensuring forward and backward shifts preserve source data.
+     */
+    private static void testPointerSubRangeOverlappingCopyAndMemmove(MemoryAllocator allocator) {
+        ManagedPointer<?> buffer = allocator.malloc(32);
+
+        // Populate with sequence: [0, 1, 2, ..., 15, 0, 0, ...]
+        for (int i = 0; i < 16; i++) {
+            buffer.addOffset(i).writeByte((byte) (i + 1));
+        }
+
+        // Shift forward: copy 10 bytes from offset 0 to offset 4 (source: 0..9, dest: 4..13)
+        ManagedPointer<?> src = buffer;
+        ManagedPointer<?> dst = buffer.addOffset(4);
+        MemoryAllocator.copyMemory(dst, src, 10);
+
+        // Verify destination has [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        for (int i = 0; i < 10; i++) {
+            assertEquals((byte) (i + 1), buffer.addOffset(4 + i).readByte(), "Forward shifted byte at " + (4 + i));
+        }
+
+        // Shift backward: copy 8 bytes from offset 4 to offset 0 (source: 4..11, dest: 0..7)
+        ManagedPointer<?> srcBack = buffer.addOffset(4);
+        ManagedPointer<?> dstBack = buffer;
+        MemoryAllocator.copyMemory(dstBack, srcBack, 8);
+
+        // Verify destination has first 8 bytes of source
+        for (int i = 0; i < 8; i++) {
+            assertEquals((byte) (i + 1), buffer.addOffset(i).readByte(), "Backward shifted byte at " + i);
+        }
+
+        allocator.free(buffer);
     }
 
     private static void testPrimitives(MemoryAllocator allocator) {
@@ -147,6 +314,89 @@ public class TestRuntime {
         allocator.free(block);
     }
 
+    /**
+     * Validates that MemoryAllocator accurately maintains active allocation counts
+     * and total allocated byte metrics across interleaved allocations, reallocations,
+     * and deallocations.
+     */
+    private static void testMemoryAllocatorBlockTrackingIntegrity() {
+        MemoryAllocator tracker = new MemoryAllocator();
+        assertEquals(0L, tracker.getActiveAllocationCount(), "Initial active allocations");
+        assertEquals(0L, tracker.getTotalAllocatedBytes(), "Initial total bytes");
+
+        ManagedPointer<?> p1 = tracker.malloc(100);
+        ManagedPointer<?> p2 = tracker.malloc(200);
+        ManagedPointer<?> p3 = tracker.malloc(300);
+
+        assertEquals(3L, tracker.getActiveAllocationCount(), "Active allocations after 3 mallocs");
+        assertEquals(600L, tracker.getTotalAllocatedBytes(), "Total bytes after 3 mallocs");
+
+        // Reallocate p2 from 200 to 500 (+300 bytes)
+        p2 = tracker.realloc(p2, 500);
+        assertEquals(3L, tracker.getActiveAllocationCount(), "Active allocations unchanged after realloc");
+        assertEquals(900L, tracker.getTotalAllocatedBytes(), "Total bytes after expanding p2 to 500");
+
+        // Free p1 (100 bytes freed)
+        tracker.free(p1);
+        assertEquals(2L, tracker.getActiveAllocationCount(), "Active allocations after freeing p1");
+        assertEquals(800L, tracker.getTotalAllocatedBytes(), "Total bytes after freeing p1");
+
+        // Free p2 (500 bytes freed)
+        tracker.free(p2);
+        assertEquals(1L, tracker.getActiveAllocationCount(), "Active allocations after freeing p2");
+        assertEquals(300L, tracker.getTotalAllocatedBytes(), "Total bytes after freeing p2");
+
+        // Free p3 (300 bytes freed)
+        tracker.free(p3);
+        assertEquals(0L, tracker.getActiveAllocationCount(), "Active allocations after freeing all");
+        assertEquals(0L, tracker.getTotalAllocatedBytes(), "Total bytes after freeing all");
+    }
+
+    /**
+     * Validates advanced memory management features: peak memory usage watermark,
+     * block size queries, off-heap direct reallocations, pool clearing, and freeAll arena resets.
+     */
+    private static void testAdvancedAllocatorFeatures() {
+        MemoryAllocator alloc = new MemoryAllocator(1200);
+        assertEquals(0L, alloc.getPeakAllocatedBytes(), "Initial peak should be 0");
+
+        ManagedPointer<?> p1 = alloc.malloc(200);
+        assertEquals(200L, alloc.getPeakAllocatedBytes(), "Peak after 200 byte alloc");
+        assertEquals(200L, alloc.getAllocatedBlockSize(p1), "getAllocatedBlockSize for heap pointer");
+
+        ManagedPointer<?> p2 = alloc.mallocDirect(300);
+        assertTrue(p2.isDirect(), "p2 should be direct");
+        assertEquals(500L, alloc.getPeakAllocatedBytes(), "Peak after 300 byte direct alloc (200 + 300)");
+        assertEquals(300L, alloc.getAllocatedBlockSize(p2), "getAllocatedBlockSize for direct pointer");
+
+        // Direct realloc test: 500 current + 600 new = 1100 <= 1200
+        p2.writeInt(0xCAFEBABE);
+        p2 = alloc.realloc(p2, 600);
+        assertTrue(p2.isDirect(), "Reallocated direct pointer should remain direct off-heap");
+        assertEquals(600L, p2.getBounds(), "Reallocated direct pointer bounds");
+        assertEquals(0xCAFEBABE, p2.readInt(), "Data preserved after direct realloc");
+        assertEquals(1100L, alloc.getPeakAllocatedBytes(), "Peak after realloc expansion to 600 (500 + 600 before old 300 freed)");
+
+        // Free p1; total drops to 600, but peak remains 1100
+        alloc.free(p1);
+        assertEquals(600L, alloc.getTotalAllocatedBytes(), "Total after freeing p1");
+        assertEquals(1100L, alloc.getPeakAllocatedBytes(), "Peak remains 1100 after partial free");
+
+        // Check untracked pointer block size query returns -1
+        ManagedPointer<?> foreign = new ManagedPointer<>(new byte[16], 0, 16);
+        assertEquals(-1L, alloc.getAllocatedBlockSize(foreign), "Untracked pointer block size should return -1");
+
+        // Pooling and pool clearing
+        ManagedPointer<?> pooled = alloc.allocatePooled(64);
+        alloc.freePooled(pooled);
+        alloc.clearPools(); // should empty cached pools without throwing
+
+        // freeAll teardown
+        alloc.freeAll();
+        assertEquals(0L, alloc.getActiveAllocationCount(), "Active allocations after freeAll should be 0");
+        assertEquals(0L, alloc.getTotalAllocatedBytes(), "Total bytes after freeAll should be 0");
+    }
+
     private static void testMemoryAllocatorOperations(MemoryAllocator allocator) {
         // calloc
         ManagedPointer<?> zeroBlock = allocator.calloc(8, 4); // 32 bytes
@@ -205,6 +455,89 @@ public class TestRuntime {
         bounded.free(p);
     }
 
+    /**
+     * Validates quota boundary tracking, memory exhaustion, partial deallocation recovery,
+     * and exact boundary allocations up to maxHeapBytes limit.
+     */
+    private static void testAllocatorQuotaExhaustionRecovery() {
+        long quotaLimit = 128;
+        MemoryAllocator quotaAlloc = new MemoryAllocator(quotaLimit);
+        assertEquals(0L, quotaAlloc.getTotalAllocatedBytes(), "Initial allocated bytes should be 0");
+        assertEquals(0L, quotaAlloc.getActiveAllocationCount(), "Initial active count should be 0");
+
+        // Allocate block A of 64 bytes
+        ManagedPointer<?> blockA = quotaAlloc.malloc(64);
+        assertEquals(64L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes after block A");
+        assertEquals(1L, quotaAlloc.getActiveAllocationCount(), "Active allocations after block A");
+
+        // Allocate block B of 64 bytes (total = 128 == quotaLimit)
+        ManagedPointer<?> blockB = quotaAlloc.malloc(64);
+        assertEquals(128L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes at full quota");
+        assertEquals(2L, quotaAlloc.getActiveAllocationCount(), "Active count at full quota");
+
+        // Attempting to allocate even 1 additional byte must fail
+        boolean quotaFailed = false;
+        try {
+            quotaAlloc.malloc(1);
+        } catch (MemoryAccessException e) {
+            quotaFailed = true;
+        }
+        assertTrue(quotaFailed, "Allocating beyond quota must throw MemoryAccessException");
+        assertEquals(128L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes should remain unchanged after failed malloc");
+
+        // Free block A (64 bytes freed)
+        quotaAlloc.free(blockA);
+        assertEquals(64L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes after freeing block A");
+        assertEquals(1L, quotaAlloc.getActiveAllocationCount(), "Active count after freeing block A");
+
+        // Reallocate block C of 32 bytes (64 + 32 = 96 <= 128)
+        ManagedPointer<?> blockC = quotaAlloc.malloc(32);
+        assertEquals(96L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes after block C");
+
+        // Allocate block D of 32 bytes (96 + 32 = 128 == 128)
+        ManagedPointer<?> blockD = quotaAlloc.malloc(32);
+        assertEquals(128L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes back at quota limit");
+
+        // Clean up remaining blocks
+        quotaAlloc.free(blockB);
+        quotaAlloc.free(blockC);
+        quotaAlloc.free(blockD);
+
+        assertEquals(0L, quotaAlloc.getTotalAllocatedBytes(), "Allocated bytes should be 0 after full cleanup");
+        assertEquals(0L, quotaAlloc.getActiveAllocationCount(), "Active count should be 0 after full cleanup");
+    }
+
+    /**
+     * Validates C-string null termination, empty string encoding, and exact boundary
+     * fit vs boundary overflow conditions.
+     */
+    private static void testCStringBoundaryEdgeCases(MemoryAllocator allocator) {
+        // Empty C-string requires 1 byte for null terminator '\0'
+        ManagedPointer<?> emptyStr = allocator.malloc(1);
+        emptyStr.writeCString("");
+        assertEquals(0, emptyStr.readCString().length(), "Empty C-string length should be 0");
+        assertEquals("", emptyStr.readCString(), "Empty C-string value");
+        assertEquals((byte) 0, emptyStr.readByte(), "Empty C-string byte 0 is null terminator");
+
+        // String "Hi" (2 bytes + 1 null = 3 bytes total) inside 3-byte allocation
+        ManagedPointer<?> exactFit = allocator.malloc(3);
+        exactFit.writeCString("Hi");
+        assertEquals("Hi", exactFit.readCString(), "Exact fit C-string read");
+
+        // Attempting to write 3-character string ("Hey") into 3-byte allocation
+        // (requires 4 bytes: 3 chars + 1 null) must fail
+        boolean caughtOverflow = false;
+        try {
+            exactFit.writeCString("Hey");
+        } catch (MemoryAccessException e) {
+            caughtOverflow = true;
+        }
+        assertTrue(caughtOverflow, "Writing 4-byte C-string into 3-byte buffer must throw MemoryAccessException");
+
+        allocator.free(emptyStr);
+        allocator.free(exactFit);
+    }
+
     private static void testStdLibStringShims(MemoryAllocator allocator) {
         ManagedPointer<?> str1 = allocator.malloc(32);
         ManagedPointer<?> str2 = allocator.malloc(32);
@@ -249,6 +582,53 @@ public class TestRuntime {
         assertEquals(2.0, StdLib.floor(2.9), "floor");
         assertEquals(3.0, StdLib.ceil(2.1), "ceil");
 
+        // stdlib.h numeric parsing
+        ManagedPointer<?> numStr = allocator.malloc(32);
+        numStr.writeCString("-12345");
+        assertEquals(-12345, StdLib.atoi(numStr), "atoi negative integer");
+        numStr.writeCString("9876543210");
+        assertEquals(9876543210L, StdLib.atol(numStr), "atol long integer");
+        numStr.writeCString("3.14159");
+        assertEquals(3.14159, StdLib.atof(numStr), "atof floating point");
+
+        // stdlib.h rand and srand
+        StdLib.srand(42);
+        int r1 = StdLib.rand();
+        int r2 = StdLib.rand();
+        assertTrue(r1 >= 0 && r1 < 32768, "rand() within 0..32767 range");
+        StdLib.srand(42);
+        assertEquals(r1, StdLib.rand(), "srand deterministic reproducibility");
+
+        // stdlib.h qsort and bsearch
+        int count = 5;
+        ManagedPointer<?> sortArr = allocator.malloc(count * 4);
+        int[] rawValues = { 50, 10, 40, 20, 30 };
+        for (int i = 0; i < count; i++) {
+            sortArr.addOffset(i * 4).writeInt(rawValues[i]);
+        }
+
+        StdLib.CmpFunc intCmp = (a, b) -> Integer.compare(a.readInt(), b.readInt());
+        StdLib.qsort(sortArr, count, 4, intCmp);
+
+        for (int i = 0; i < count; i++) {
+            assertEquals((i + 1) * 10, sortArr.addOffset(i * 4).readInt(), "qsort array element sorted at " + i);
+        }
+
+        ManagedPointer<?> searchKey = allocator.malloc(4);
+        searchKey.writeInt(30);
+        ManagedPointer<?> foundPtr = StdLib.bsearch(searchKey, sortArr, count, 4, intCmp);
+        assertTrue(foundPtr != null, "bsearch found key");
+        assertEquals(30, foundPtr.readInt(), "bsearch read match");
+        assertEquals(2 * 4L, foundPtr.diff(sortArr), "bsearch index distance check");
+
+        searchKey.writeInt(99);
+        ManagedPointer<?> notFound = StdLib.bsearch(searchKey, sortArr, count, 4, intCmp);
+        assertTrue(notFound == null, "bsearch returns null on missing element");
+
+        allocator.free(numStr);
+        allocator.free(sortArr);
+        allocator.free(searchKey);
+
         allocator.free(str1);
         allocator.free(str2);
         allocator.free(dest);
@@ -290,6 +670,60 @@ public class TestRuntime {
         assertEquals(16, array.length, "toByteArray length mismatch");
 
         allocator.free(ptr);
+    }
+
+    /**
+     * Validates exact allocation boundary clamping across zero-byte, single-byte,
+     * and odd-sized memory blocks with offset displacement and sub-slicing.
+     */
+    private static void testExactAllocatedBlockBoundaryClamping(MemoryAllocator allocator) {
+        // Single-byte allocation edge case
+        ManagedPointer<?> singleByte = allocator.malloc(1);
+        assertEquals(1L, singleByte.getBounds(), "1-byte allocation bounds");
+        singleByte.writeByte((byte) 0x5A);
+        assertEquals((byte) 0x5A, singleByte.readByte(), "1-byte allocation read");
+
+        // Attempting to read 2 bytes from a 1-byte allocation
+        boolean caught2Byte = false;
+        try {
+            singleByte.readShort();
+        } catch (MemoryAccessException e) {
+            caught2Byte = true;
+        }
+        assertTrue(caught2Byte, "Reading short from 1-byte allocation must throw MemoryAccessException");
+
+        // Attempting to offset past end
+        boolean caughtOffsetPast = false;
+        try {
+            singleByte.addOffset(1).readByte();
+        } catch (MemoryAccessException e) {
+            caughtOffsetPast = true;
+        }
+        assertTrue(caughtOffsetPast, "Reading at offset 1 of 1-byte allocation must throw MemoryAccessException");
+
+        // Odd-sized allocation (7 bytes)
+        ManagedPointer<?> oddBlock = allocator.malloc(7);
+        assertEquals(7L, oddBlock.getBounds(), "7-byte allocation bounds");
+        oddBlock.fillMemory((byte) 0x11, 7);
+        for (int i = 0; i < 7; i++) {
+            assertEquals((byte) 0x11, oddBlock.addOffset(i).readByte(), "Odd block byte at " + i);
+        }
+
+        // 4-byte int read at offset 3 (3 + 4 = 7 <= 7, exactly fits)
+        oddBlock.addOffset(3).writeInt(0x12345678);
+        assertEquals(0x12345678, oddBlock.addOffset(3).readInt(), "Exact fit 4-byte int read at offset 3 of 7-byte block");
+
+        // 4-byte int read at offset 4 (4 + 4 = 8 > 7, overflows by 1 byte)
+        boolean caughtIntOverflow = false;
+        try {
+            oddBlock.addOffset(4).readInt();
+        } catch (MemoryAccessException e) {
+            caughtIntOverflow = true;
+        }
+        assertTrue(caughtIntOverflow, "4-byte int read at offset 4 of 7-byte block must throw MemoryAccessException");
+
+        allocator.free(singleByte);
+        allocator.free(oddBlock);
     }
 
     private static void testEdgeConditionsAndBoundaryLimits(MemoryAllocator allocator) {
@@ -339,6 +773,104 @@ public class TestRuntime {
         allocator.free(zeroPtr);
     }
 
+    /**
+     * Validates isolation between on-heap and off-heap direct pointers:
+     * verifying that diff, compareTo, and equality across heap vs direct blocks
+     * deterministically throw IllegalArgumentException or evaluate false.
+     */
+    private static void testCrossBlockDirectAndHeapPointerIsolation(MemoryAllocator allocator) {
+        ManagedPointer<?> heapPtr = allocator.malloc(32);
+        ManagedPointer<?> directPtr = allocator.mallocDirect(32);
+
+        // heap vs direct diff check
+        boolean caughtDiff = false;
+        try {
+            heapPtr.diff(directPtr);
+        } catch (IllegalArgumentException e) {
+            caughtDiff = true;
+        }
+        assertTrue(caughtDiff, "diff between on-heap and off-heap direct pointers must throw IllegalArgumentException");
+
+        // direct vs heap diff check
+        boolean caughtReverseDiff = false;
+        try {
+            directPtr.diff(heapPtr);
+        } catch (IllegalArgumentException e) {
+            caughtReverseDiff = true;
+        }
+        assertTrue(caughtReverseDiff, "diff between off-heap and on-heap pointers must throw IllegalArgumentException");
+
+        // compareTo between heap and direct
+        boolean caughtCompare = false;
+        try {
+            ((ManagedPointer) heapPtr).compareTo(directPtr);
+        } catch (IllegalArgumentException e) {
+            caughtCompare = true;
+        }
+        assertTrue(caughtCompare, "compareTo between on-heap and off-heap pointers must throw IllegalArgumentException");
+
+        // equals check
+        assertTrue(!heapPtr.equals(directPtr), "on-heap pointer must not equal off-heap pointer");
+        assertTrue(!directPtr.equals(heapPtr), "off-heap pointer must not equal on-heap pointer");
+
+        allocator.free(heapPtr);
+        allocator.free(directPtr);
+    }
+
+    private static void testPointerCrossBlockAndStringExceptions(MemoryAllocator allocator) {
+        ManagedPointer<?> block1 = allocator.malloc(16);
+        ManagedPointer<?> block2 = allocator.malloc(16);
+
+        // Cross-block diff check
+        boolean caught = false;
+        try {
+            block1.diff(block2);
+        } catch (IllegalArgumentException e) {
+            caught = true;
+        }
+        assertTrue(caught, "diff between different memory blocks should throw IllegalArgumentException");
+
+        // Cross-block compareTo check
+        caught = false;
+        try {
+            ((ManagedPointer) block1).compareTo(block2);
+        } catch (IllegalArgumentException e) {
+            caught = true;
+        }
+        assertTrue(caught, "compareTo between different memory blocks should throw IllegalArgumentException");
+
+        // Unterminated C-string check
+        block1.fillMemory((byte) 'X', 16); // no null terminator
+        caught = false;
+        try {
+            block1.readCString();
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "readCString without null terminator should throw MemoryAccessException");
+
+        // Invalid aligned_alloc alignment
+        caught = false;
+        try {
+            allocator.aligned_alloc(15, 32); // 15 is not a power of two
+        } catch (IllegalArgumentException e) {
+            caught = true;
+        }
+        assertTrue(caught, "aligned_alloc with non-power-of-two alignment should throw IllegalArgumentException");
+
+        // copyMemory out of bounds check
+        caught = false;
+        try {
+            MemoryAllocator.copyMemory(block1, block2, 32); // 32 > 16 bounds
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "copyMemory exceeding bounds should throw MemoryAccessException");
+
+        allocator.free(block1);
+        allocator.free(block2);
+    }
+
     private static void testCppObjectAndVTable(MemoryAllocator allocator) {
         // Base class: Shape (virtual int area())
         VTable shapeVTable = new VTable("Shape");
@@ -363,6 +895,72 @@ public class TestRuntime {
         assertEquals(50, result, "Virtual method area() dispatch mismatch");
 
         rectObj.destroy(allocator);
+    }
+
+    /**
+     * Validates direct off-heap native memory alignment checks, byte filling,
+     * slicing, and bounds-checking exceptions.
+     */
+    private static void testDirectMemoryAlignmentAndBounds(MemoryAllocator allocator) {
+        ManagedPointer<?> direct = allocator.mallocDirect(64);
+        assertTrue(direct.isDirect(), "Direct pointer should report isDirect() == true");
+        assertTrue(direct.getRawAddress() != 0, "Direct pointer raw address should be non-zero");
+
+        // Direct memory memset
+        direct.fillMemory((byte) 0x7F, 32);
+        for (int i = 0; i < 32; i++) {
+            assertEquals((byte) 0x7F, direct.addOffset(i).readByte(), "Direct memset byte at " + i);
+        }
+
+        // Direct memory slicing
+        ManagedPointer<?> slice = direct.slice(16, 32);
+        assertTrue(slice.isDirect(), "Sliced direct pointer should be direct");
+        assertEquals(16L, slice.getOffset(), "Sliced direct pointer offset");
+        assertEquals(48L, slice.getBounds(), "Sliced direct pointer bounds");
+
+        slice.writeLong(0x123456789ABCDEF0L);
+        assertEquals(0x123456789ABCDEF0L, direct.addOffset(16).readLong(), "Parent direct memory reflects slice write");
+
+        // Direct memory bounds checking: reading past slice boundary (offset 48 on direct block)
+        boolean caughtSliceOverflow = false;
+        try {
+            slice.addOffset(32).readByte(); // 16 + 32 = 48, which reaches upper bounds 48
+        } catch (MemoryAccessException e) {
+            caughtSliceOverflow = true;
+        }
+        assertTrue(caughtSliceOverflow, "Reading past direct slice boundary must throw MemoryAccessException");
+
+        allocator.free(direct);
+    }
+
+    private static void testOffHeapDirectMemory(MemoryAllocator allocator) {
+        ManagedPointer<?> directPtr = allocator.mallocDirect(64);
+        assertTrue(directPtr.isDirect(), "mallocDirect pointer should be direct");
+        assertEquals(null, directPtr.getBase(), "Direct pointer base should be null");
+        assertTrue(directPtr.getRawAddress() != 0, "Direct pointer raw address should be non-zero");
+
+        // Test writing and reading primitives off-heap
+        directPtr.writeInt(999999);
+        assertEquals(999999, directPtr.readInt(), "Direct pointer readInt mismatch");
+
+        directPtr.writeDouble(12345.6789);
+        assertEquals(12345.6789, directPtr.readDouble(), "Direct pointer readDouble mismatch");
+
+        // Pointer arithmetic on direct pointer
+        ManagedPointer<?> offsetDirect = directPtr.addOffset(8);
+        offsetDirect.writeLong(0xAABBCCDDEEFF0011L);
+        assertEquals(0xAABBCCDDEEFF0011L, offsetDirect.readLong(), "Offset direct readLong mismatch");
+
+        allocator.free(directPtr);
+
+        // Double free check on direct memory
+        boolean caught = false;
+        try {
+            allocator.free(directPtr);
+        } catch (MemoryAccessException e) {
+            caught = true;
+        }
+        assertTrue(caught, "Should throw on double free of direct memory");
     }
 
     private static void testMemoryPoolRecycling(MemoryAllocator allocator) {
@@ -403,6 +1001,49 @@ public class TestRuntime {
         assertEquals(allocsBefore, allocator.getActiveAllocationCount(), "Active allocations restored after sliced free");
 
         allocator.free(p2);
+    }
+
+    private static void testMultidimensionalArrayEmulation(MemoryAllocator allocator) {
+        // Emulates int matrix[3][4] (12 ints = 48 bytes)
+        int rows = 3;
+        int cols = 4;
+        ManagedPointer<?> matrix = allocator.malloc((long) rows * cols * 4);
+
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                long offset = ((long) r * cols + c) * 4;
+                matrix.addOffset(offset).writeInt(r * 100 + c);
+            }
+        }
+
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                long offset = ((long) r * cols + c) * 4;
+                int val = matrix.addOffset(offset).readInt();
+                assertEquals(r * 100 + c, val, "Matrix element at [" + r + "][" + c + "]");
+            }
+        }
+
+        allocator.free(matrix);
+    }
+
+    private static void testPointerTypeCastSimulation(MemoryAllocator allocator) {
+        // Emulates union { int i; byte b[4]; }
+        ManagedPointer<?> pun = allocator.malloc(4);
+        pun.writeInt(0x12345678);
+
+        // Verify individual byte reads regardless of endianness
+        byte b0 = pun.readByte();
+        byte b1 = pun.addOffset(1).readByte();
+        byte b2 = pun.addOffset(2).readByte();
+        byte b3 = pun.addOffset(3).readByte();
+
+        int reconstructed = (java.nio.ByteOrder.nativeOrder() == java.nio.ByteOrder.LITTLE_ENDIAN)
+                ? ((b0 & 0xFF) | ((b1 & 0xFF) << 8) | ((b2 & 0xFF) << 16) | ((b3 & 0xFF) << 24))
+                : (((b0 & 0xFF) << 24) | ((b1 & 0xFF) << 16) | ((b2 & 0xFF) << 8) | (b3 & 0xFF));
+
+        assertEquals(0x12345678, reconstructed, "Type-punning byte reconstruction match");
+        allocator.free(pun);
     }
 
     private static void testConcurrencyStress(MemoryAllocator allocator) {

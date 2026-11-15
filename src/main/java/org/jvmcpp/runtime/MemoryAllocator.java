@@ -13,7 +13,9 @@ public final class MemoryAllocator {
     private final long maxHeapBytes;
     private final AtomicLong activeAllocations = new AtomicLong(0);
     private final AtomicLong totalAllocatedBytes = new AtomicLong(0);
+    private final AtomicLong peakAllocatedBytes = new AtomicLong(0);
     private final Map<Object, Long> allocatedBlockSizes = new ConcurrentHashMap<>();
+    private final Map<Long, Long> directAllocations = new ConcurrentHashMap<>();
 
     // Fast memory pools for recycling common allocation sizes (e.g. 32, 64, 128, 256 bytes)
     private final Map<Long, ConcurrentLinkedQueue<ManagedPointer<?>>> freePools = new ConcurrentHashMap<>();
@@ -41,6 +43,62 @@ public final class MemoryAllocator {
         return totalAllocatedBytes.get();
     }
 
+    public long getPeakAllocatedBytes() {
+        return peakAllocatedBytes.get();
+    }
+
+    private void updatePeak() {
+        long current = totalAllocatedBytes.get();
+        peakAllocatedBytes.accumulateAndGet(current, Math::max);
+    }
+
+    /**
+     * Returns the allocated capacity in bytes of the block associated with pointer,
+     * or -1 if the pointer is not tracked by this allocator.
+     */
+    public long getAllocatedBlockSize(ManagedPointer<?> pointer) {
+        if (pointer == null) {
+            return -1;
+        }
+        if (pointer.isDirect()) {
+            Long size = directAllocations.get(pointer.getRawAddress());
+            return size != null ? size : -1;
+        } else {
+            Object base = pointer.getBase();
+            Long size = base != null ? allocatedBlockSizes.get(base) : null;
+            return size != null ? size : -1;
+        }
+    }
+
+    /**
+     * Clears all cached free pools, releasing references to pooled blocks.
+     */
+    public void clearPools() {
+        freePools.clear();
+    }
+
+    /**
+     * Frees all currently tracked active allocations (both heap and off-heap direct),
+     * completely resetting the allocator state.
+     */
+    public synchronized void freeAll() {
+        // Free off-heap direct allocations
+        for (Map.Entry<Long, Long> entry : directAllocations.entrySet()) {
+            long addr = entry.getKey();
+            try {
+                java.lang.reflect.Field f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+                f.setAccessible(true);
+                sun.misc.Unsafe unsafe = (sun.misc.Unsafe) f.get(null);
+                unsafe.freeMemory(addr);
+            } catch (Exception ignored) {}
+        }
+        directAllocations.clear();
+        allocatedBlockSizes.clear();
+        freePools.clear();
+        activeAllocations.set(0);
+        totalAllocatedBytes.set(0);
+    }
+
     /**
      * Allocates on-heap memory of specified byte size.
      */
@@ -59,8 +117,40 @@ public final class MemoryAllocator {
         allocatedBlockSizes.put(memoryBlock, size);
         activeAllocations.incrementAndGet();
         totalAllocatedBytes.addAndGet(size);
+        updatePeak();
 
         return pointer;
+    }
+
+    /**
+     * Allocates unmanaged off-heap direct native memory of specified byte size.
+     */
+    public <T> ManagedPointer<T> mallocDirect(long size) {
+        if (size < 0) {
+            throw new IllegalArgumentException("Invalid allocation size: " + size);
+        }
+
+        if (totalAllocatedBytes.get() + size > maxHeapBytes) {
+            throw new MemoryAccessException("Out of memory: direct allocation of " + size + " bytes exceeds limit of " + maxHeapBytes + " bytes (current: " + totalAllocatedBytes.get() + ")");
+        }
+
+        try {
+            java.lang.reflect.Field f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+            f.setAccessible(true);
+            sun.misc.Unsafe unsafe = (sun.misc.Unsafe) f.get(null);
+
+            long rawAddress = unsafe.allocateMemory(size);
+            ManagedPointer<T> pointer = new ManagedPointer<>(null, rawAddress, 0, size);
+
+            directAllocations.put(rawAddress, size);
+            activeAllocations.incrementAndGet();
+            totalAllocatedBytes.addAndGet(size);
+            updatePeak();
+
+            return pointer;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to allocate off-heap direct memory", e);
+        }
     }
 
     /**
@@ -82,6 +172,7 @@ public final class MemoryAllocator {
                 allocatedBlockSizes.put(reused.getBase(), size);
                 activeAllocations.incrementAndGet();
                 totalAllocatedBytes.addAndGet(size);
+                updatePeak();
                 return new ManagedPointer<>(reused.getBase(), 0, size);
             }
         }
@@ -147,14 +238,25 @@ public final class MemoryAllocator {
      */
     public void free(ManagedPointer<?> pointer) {
         if (pointer != null) {
-            Object base = pointer.getBase();
-            Long originalSize = base != null ? allocatedBlockSizes.remove(base) : null;
-            if (originalSize == null) {
-                throw new MemoryAccessException("Double free or invalid pointer deallocation");
+            if (pointer.isDirect()) {
+                long addr = pointer.getRawAddress();
+                Long originalSize = directAllocations.remove(addr);
+                if (originalSize == null) {
+                    throw new MemoryAccessException("Double free or invalid direct pointer deallocation: " + addr);
+                }
+                pointer.free();
+                activeAllocations.decrementAndGet();
+                totalAllocatedBytes.addAndGet(-originalSize);
+            } else {
+                Object base = pointer.getBase();
+                Long originalSize = base != null ? allocatedBlockSizes.remove(base) : null;
+                if (originalSize == null) {
+                    throw new MemoryAccessException("Double free or invalid pointer deallocation");
+                }
+                pointer.free();
+                activeAllocations.decrementAndGet();
+                totalAllocatedBytes.addAndGet(-originalSize);
             }
-            pointer.free();
-            activeAllocations.decrementAndGet();
-            totalAllocatedBytes.addAndGet(-originalSize);
         }
     }
 
@@ -172,7 +274,8 @@ public final class MemoryAllocator {
             return null;
         }
 
-        ManagedPointer<T> newPointer = malloc(newSize);
+        boolean direct = pointer.isDirect();
+        ManagedPointer<T> newPointer = direct ? mallocDirect(newSize) : malloc(newSize);
         long bytesToCopy = Math.min(pointer.getBounds(), newSize);
         if (bytesToCopy > 0) {
             copyMemory(newPointer, pointer, bytesToCopy);
@@ -219,8 +322,12 @@ public final class MemoryAllocator {
 
             long byteArrayOffset = unsafe.arrayBaseOffset(byte[].class);
 
-            long destAddress = dest.getBase() instanceof byte[] ? byteArrayOffset + dest.getOffset() : dest.getOffset();
-            long srcAddress = src.getBase() instanceof byte[] ? byteArrayOffset + src.getOffset() : src.getOffset();
+            long destAddress = dest.getBase() instanceof byte[]
+                    ? byteArrayOffset + dest.getOffset()
+                    : dest.getRawAddress() + dest.getOffset();
+            long srcAddress = src.getBase() instanceof byte[]
+                    ? byteArrayOffset + src.getOffset()
+                    : src.getRawAddress() + src.getOffset();
 
             unsafe.copyMemory(src.getBase(), srcAddress, dest.getBase(), destAddress, bytes);
         } catch (Exception e) {
